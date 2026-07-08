@@ -1,0 +1,39 @@
+{
+  "steps": [
+    {
+      "frame_path": "docs/ai2thor_outputs/frames/ai2thor_frame_00.png",
+      "observation_path": "docs/ai2thor_outputs/frames/ai2thor_obs_00.png",
+      "topdown_path": "docs/ai2thor_outputs/frames/ai2thor_topdown_00.png",
+      "thought": "Target-like evidence is strong; strongest candidate is a red region at middle center. Confidence 0.98 is high enough, so the agent stops and reports the target.",
+      "action": "STOP",
+      "confidence": 0.978,
+      "done": true,
+      "robot": {
+        "x": -0.5,
+        "y": 0.5,
+        "heading": 90.0
+      },
+      "best_candidate": {
+        "label": "red cup",
+        "bbox": [
+          0,
+          22,
+          448,
+          448
+        ],
+        "confidence": 0.978,
+        "color_name": "red",
+        "region": "middle center",
+        "reason": "red visual signature; located in middle center; matches requested color"
+      },
+      "visible_objects": [
+        "Floor",
+        "ShelvingUnit"
+      ],
+      "backend": "local_ppt_style",
+      "scene": "FloorPlan211-compatible"
+    }
+  ],
+  "video_path": "docs/ai2thor_outputs/ai2thor_visual_search_demo.mp4",
+  "summary_path": "docs/ai2thor_outputs/ai2thor_demo_summary.json"
+}

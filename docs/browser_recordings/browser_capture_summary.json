@@ -1,0 +1,11 @@
+{
+  "statusText": "Generated 1 steps and recorded docs/ai2thor_outputs/ai2thor_visual_search_demo.mp4.",
+  "actionText": "STOP",
+  "confText": "Confidence 0.861",
+  "backendText": "ai2thor",
+  "sceneText": "FloorPlan211",
+  "thoughtText": "Target-like evidence is strong; strongest candidate is a red region at middle center. Confidence 0.86 is high enough, so the agent stops and reports the target.",
+  "videoSrc": "http://127.0.0.1:18000/docs/ai2thor_outputs/ai2thor_visual_search_demo.mp4?t=1783439601174",
+  "frameDir": "D:\\cache\\SummerCap\\kaohe\\zju\\docs\\browser_recordings\\frames",
+  "frameCount": 56
+}

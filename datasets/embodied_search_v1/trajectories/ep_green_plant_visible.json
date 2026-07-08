@@ -1,0 +1,40 @@
+{
+  "session_id": "ep_green_plant_visible",
+  "instruction": "Find the green plant near the window",
+  "steps": [
+    {
+      "step_id": 0,
+      "thought": "Target-like evidence is strong; strongest candidate is a green region at middle left. Confidence 0.95 is high enough, so the agent stops and reports the target.",
+      "action": {
+        "type": "STOP",
+        "args": {
+          "reason": "target confidence crossed stop threshold"
+        }
+      },
+      "confidence": 0.952,
+      "done": true,
+      "best_candidate": {
+        "label": "green plant",
+        "bbox": [
+          35,
+          245,
+          211,
+          311
+        ],
+        "confidence": 0.952,
+        "color_name": "green",
+        "region": "middle left",
+        "reason": "green visual signature; located in middle left; matches requested color"
+      },
+      "candidate_count": 3,
+      "retrieved_hints": [
+        "plants often stand near windows, corners, or tables",
+        "look for green regions at room edges"
+      ]
+    }
+  ],
+  "negative_memory": [],
+  "explored_regions": {
+    "middle left": 1
+  }
+}

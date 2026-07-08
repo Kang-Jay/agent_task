@@ -1,0 +1,178 @@
+{
+  "steps": [
+    {
+      "frame_path": "docs/ai2thor_outputs/frames/ai2thor_frame_00.png",
+      "observation_path": "docs/ai2thor_outputs/frames/ai2thor_obs_00.png",
+      "topdown_path": "docs/ai2thor_outputs/frames/ai2thor_topdown_00.png",
+      "thought": "The target is not confirmed by AI2-THOR instance segmentation yet, so the agent executes TURN_RIGHT to continue the embodied search.",
+      "action": "TURN_RIGHT",
+      "confidence": 0.57,
+      "done": false,
+      "robot": {
+        "x": -0.5,
+        "y": 0.5,
+        "heading": 90.0
+      },
+      "best_candidate": null,
+      "visible_objects": [
+        "Floor",
+        "ShelvingUnit"
+      ],
+      "backend": "ai2thor",
+      "scene": "FloorPlan211"
+    },
+    {
+      "frame_path": "docs/ai2thor_outputs/frames/ai2thor_frame_01.png",
+      "observation_path": "docs/ai2thor_outputs/frames/ai2thor_obs_01.png",
+      "topdown_path": "docs/ai2thor_outputs/frames/ai2thor_topdown_01.png",
+      "thought": "The target is not confirmed by AI2-THOR instance segmentation yet, so the agent executes TURN_RIGHT to continue the embodied search.",
+      "action": "TURN_RIGHT",
+      "confidence": 0.57,
+      "done": false,
+      "robot": {
+        "x": -0.5,
+        "y": 0.5,
+        "heading": 120.00000762939453
+      },
+      "best_candidate": null,
+      "visible_objects": [
+        "Floor"
+      ],
+      "backend": "ai2thor",
+      "scene": "FloorPlan211"
+    },
+    {
+      "frame_path": "docs/ai2thor_outputs/frames/ai2thor_frame_02.png",
+      "observation_path": "docs/ai2thor_outputs/frames/ai2thor_obs_02.png",
+      "topdown_path": "docs/ai2thor_outputs/frames/ai2thor_topdown_02.png",
+      "thought": "The target is not confirmed by AI2-THOR instance segmentation yet, so the agent executes TURN_RIGHT to continue the embodied search.",
+      "action": "TURN_RIGHT",
+      "confidence": 0.57,
+      "done": false,
+      "robot": {
+        "x": -0.5,
+        "y": 0.5,
+        "heading": 150.00001525878906
+      },
+      "best_candidate": null,
+      "visible_objects": [
+        "Floor"
+      ],
+      "backend": "ai2thor",
+      "scene": "FloorPlan211"
+    },
+    {
+      "frame_path": "docs/ai2thor_outputs/frames/ai2thor_frame_03.png",
+      "observation_path": "docs/ai2thor_outputs/frames/ai2thor_obs_03.png",
+      "topdown_path": "docs/ai2thor_outputs/frames/ai2thor_topdown_03.png",
+      "thought": "The target is not confirmed by AI2-THOR instance segmentation yet, so the agent executes MOVE_FORWARD to continue the embodied search.",
+      "action": "MOVE_FORWARD",
+      "confidence": 0.57,
+      "done": false,
+      "robot": {
+        "x": -0.5,
+        "y": 0.5,
+        "heading": 180.0
+      },
+      "best_candidate": null,
+      "visible_objects": [
+        "Floor",
+        "GarbageCan"
+      ],
+      "backend": "ai2thor",
+      "scene": "FloorPlan211"
+    },
+    {
+      "frame_path": "docs/ai2thor_outputs/frames/ai2thor_frame_04.png",
+      "observation_path": "docs/ai2thor_outputs/frames/ai2thor_obs_04.png",
+      "topdown_path": "docs/ai2thor_outputs/frames/ai2thor_topdown_04.png",
+      "thought": "The target is not confirmed by AI2-THOR instance segmentation yet, so the agent executes TURN_RIGHT to continue the embodied search.",
+      "action": "TURN_RIGHT",
+      "confidence": 0.57,
+      "done": false,
+      "robot": {
+        "x": -0.5,
+        "y": 0.25,
+        "heading": 180.0
+      },
+      "best_candidate": null,
+      "visible_objects": [
+        "Floor"
+      ],
+      "backend": "ai2thor",
+      "scene": "FloorPlan211"
+    },
+    {
+      "frame_path": "docs/ai2thor_outputs/frames/ai2thor_frame_05.png",
+      "observation_path": "docs/ai2thor_outputs/frames/ai2thor_obs_05.png",
+      "topdown_path": "docs/ai2thor_outputs/frames/ai2thor_topdown_05.png",
+      "thought": "AI2-THOR segmentation grounds the requested target as Television at bottom right with confidence 0.94. The agent inspects once before final confirmation.",
+      "action": "INSPECT",
+      "confidence": 0.943,
+      "done": false,
+      "robot": {
+        "x": -0.5,
+        "y": 0.25,
+        "heading": 210.0
+      },
+      "best_candidate": {
+        "label": "Television",
+        "bbox": [
+          780,
+          315,
+          960,
+          540
+        ],
+        "confidence": 0.943,
+        "color_name": "segmentation",
+        "region": "bottom right",
+        "reason": "AI2-THOR instance segmentation matched the requested target object"
+      },
+      "visible_objects": [
+        "Floor",
+        "GarbageCan",
+        "Television",
+        "Television (segmented)"
+      ],
+      "backend": "ai2thor",
+      "scene": "FloorPlan211"
+    },
+    {
+      "frame_path": "docs/ai2thor_outputs/frames/ai2thor_frame_06.png",
+      "observation_path": "docs/ai2thor_outputs/frames/ai2thor_obs_06.png",
+      "topdown_path": "docs/ai2thor_outputs/frames/ai2thor_topdown_06.png",
+      "thought": "AI2-THOR segmentation grounds the requested target as Television at bottom right with confidence 0.94. The agent stops after confirmation.",
+      "action": "STOP",
+      "confidence": 0.943,
+      "done": true,
+      "robot": {
+        "x": -0.5,
+        "y": 0.25,
+        "heading": 210.0
+      },
+      "best_candidate": {
+        "label": "Television",
+        "bbox": [
+          780,
+          315,
+          960,
+          540
+        ],
+        "confidence": 0.943,
+        "color_name": "segmentation",
+        "region": "bottom right",
+        "reason": "AI2-THOR instance segmentation matched the requested target object"
+      },
+      "visible_objects": [
+        "Floor",
+        "GarbageCan",
+        "Television",
+        "Television (segmented)"
+      ],
+      "backend": "ai2thor",
+      "scene": "FloorPlan211"
+    }
+  ],
+  "video_path": "docs/ai2thor_outputs/ai2thor_visual_search_demo.mp4",
+  "summary_path": "docs/ai2thor_outputs/ai2thor_demo_summary.json"
+}

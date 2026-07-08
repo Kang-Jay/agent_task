@@ -1,0 +1,49 @@
+{
+  "video_path": "docs\\cinematic_demo\\ai2thor_cinematic_visual_search_demo_action_aligned.mp4",
+  "exists": true,
+  "bytes": 8310615,
+  "frame_count": 292,
+  "fps": 24.0,
+  "width": 1920,
+  "height": 1080,
+  "duration_seconds": 12.17,
+  "source_steps": 7,
+  "all_steps_ai2thor": true,
+  "final_action": "STOP",
+  "final_confidence": 0.943,
+  "final_best_candidate": {
+    "label": "Television",
+    "bbox": [
+      780,
+      315,
+      960,
+      540
+    ],
+    "confidence": 0.943,
+    "color_name": "segmentation",
+    "region": "bottom right",
+    "reason": "AI2-THOR instance segmentation matched the requested target object"
+  },
+  "sample_frames": [
+    "docs\\cinematic_demo\\frames\\cinematic_0000.png",
+    "docs\\cinematic_demo\\frames\\cinematic_0146.png",
+    "docs\\cinematic_demo\\frames\\cinematic_0291.png"
+  ],
+  "sample_stats": [
+    {
+      "path": "docs\\cinematic_demo\\frames\\cinematic_0000.png",
+      "mean": 27.4,
+      "std": 22.57
+    },
+    {
+      "path": "docs\\cinematic_demo\\frames\\cinematic_0146.png",
+      "mean": 84.28,
+      "std": 76.15
+    },
+    {
+      "path": "docs\\cinematic_demo\\frames\\cinematic_0291.png",
+      "mean": 54.65,
+      "std": 49.68
+    }
+  ]
+}

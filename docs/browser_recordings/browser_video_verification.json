@@ -1,0 +1,30 @@
+{
+  "video_path": "docs\\browser_recordings\\remote_ai2thor_browser_demo.mp4",
+  "exists": true,
+  "bytes": 997365,
+  "frame_count": 56,
+  "fps": 6.0,
+  "width": 1920,
+  "height": 1080,
+  "source_frame_count": 56,
+  "sample_stats": [
+    {
+      "path": "docs\\browser_recordings\\frames\\browser_demo_000.png",
+      "read": true,
+      "mean": 70.57,
+      "std": 70.06
+    },
+    {
+      "path": "docs\\browser_recordings\\frames\\browser_demo_028.png",
+      "read": true,
+      "mean": 70.44,
+      "std": 69.97
+    },
+    {
+      "path": "docs\\browser_recordings\\frames\\browser_demo_055.png",
+      "read": true,
+      "mean": 70.44,
+      "std": 69.97
+    }
+  ]
+}

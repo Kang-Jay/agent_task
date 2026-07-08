@@ -1,0 +1,27 @@
+{
+  "video_path": "docs\\browser_recordings\\remote_ai2thor_strict_replay_demo.mp4",
+  "exists": true,
+  "bytes": 1008997,
+  "frame_count": 90,
+  "fps": 10.0,
+  "width": 1264,
+  "height": 712,
+  "source_frame_count": 90,
+  "sample_stats": [
+    {
+      "path": "docs\\browser_recordings\\frames_ai2thor_replay\\browser_ai2thor_replay_000.png",
+      "mean": 79.0,
+      "std": 73.72
+    },
+    {
+      "path": "docs\\browser_recordings\\frames_ai2thor_replay\\browser_ai2thor_replay_045.png",
+      "mean": 81.13,
+      "std": 73.94
+    },
+    {
+      "path": "docs\\browser_recordings\\frames_ai2thor_replay\\browser_ai2thor_replay_089.png",
+      "mean": 81.13,
+      "std": 73.94
+    }
+  ]
+}

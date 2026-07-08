@@ -1,0 +1,46 @@
+# Secrets
+apikey.txt
+.env
+.env.*
+*.key
+*.pem
+
+# Python/runtime caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+~$*
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Generated videos and bulky render outputs
+*.mp4
+*.mov
+*.avi
+*.mkv
+docs/**/frames/
+docs/browser_recordings/frames*/
+docs/cinematic_demo/frames/
+
+# Generated AI2-THOR/browser recording runtime artifacts
+docs/ai2thor_outputs/frames/
+docs/demo_outputs/frames/
+docs/browser_recordings/frames/
+
+# Large downloaded reference PDFs; keep metadata/notes in git instead
+research/papers/*.pdf

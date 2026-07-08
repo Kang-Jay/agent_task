@@ -1,0 +1,2 @@
+"""Lightweight embodied search simulation."""
+

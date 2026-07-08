@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI2-THOR Visual Search Agent Demo</title>
+  <style>
+    :root {
+      --bg: #070b12;
+      --panel: #111827;
+      --panel2: #172033;
+      --line: #334155;
+      --text: #eef6ff;
+      --muted: #9fb2c8;
+      --cyan: #35d9c6;
+      --blue: #58a6ff;
+      --green: #5ee29b;
+      --red: #ff6b61;
+      --amber: #ffc857;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: linear-gradient(135deg, #070b12 0%, #111827 48%, #10151f 100%);
+      font-family: Inter, Segoe UI, Arial, sans-serif;
+    }
+    header {
+      height: 72px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--line);
+      background: rgba(8, 17, 31, 0.92);
+    }
+    h1 { margin: 0; font-size: 21px; letter-spacing: 0; }
+    header span { color: var(--muted); font-size: 13px; }
+    main {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 18px;
+      padding: 18px;
+    }
+    .panel {
+      background: rgba(17, 28, 45, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22);
+    }
+    label { display: block; margin: 14px 0 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+    textarea, input, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #0b1626;
+      color: var(--text);
+      font: inherit;
+    }
+    textarea { min-height: 86px; resize: vertical; }
+    button {
+      border: 0;
+      border-radius: 6px;
+      background: var(--cyan);
+      color: #041017;
+      padding: 10px 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button.secondary { background: #31445f; color: var(--text); }
+    .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .stage {
+      display: grid;
+      grid-template-columns: minmax(440px, 1.4fr) minmax(330px, 0.8fr);
+      gap: 14px;
+      min-height: 600px;
+    }
+    .viewport, .map, .brain, .trace {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .viewport { min-height: 600px; }
+    .side-stack { display: grid; grid-template-rows: 330px 1fr; gap: 14px; }
+    .map { min-height: 330px; }
+    .brain { min-height: 256px; padding: 16px; }
+    .viewport img, .map img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #111827;
+      display: block;
+    }
+    .map img { object-fit: contain; background: #f8fafc; }
+    .tag { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+    .action { color: var(--cyan); font-size: 24px; font-weight: 900; margin: 10px 0; }
+    .confidence { color: var(--red); font-size: 20px; font-weight: 800; }
+    .thought { margin-top: 18px; line-height: 1.55; color: #dbeafe; }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .metric {
+      background: #0b1626;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .metric strong { display: block; color: var(--text); font-size: 15px; margin-top: 4px; }
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .step-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel2);
+      padding: 10px;
+      min-height: 96px;
+    }
+    .step-card.active { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan) inset; }
+    .step-card strong { display: block; margin-bottom: 6px; }
+    .step-card span { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .status {
+      min-height: 38px;
+      color: var(--muted);
+      margin-top: 12px;
+      line-height: 1.45;
+    }
+    .env {
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid #4b5563;
+      border-radius: 6px;
+      background: #0b1626;
+      color: #cbd5e1;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    video {
+      width: 100%;
+      max-height: 260px;
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #000;
+    }
+    @media (max-width: 1100px) {
+      main { grid-template-columns: 1fr; }
+      .stage { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI2-THOR Visual Search Agent Demo</h1>
+    <span>FloorPlan211-style simulator + robot POV + thought/action trajectory</span>
+  </header>
+  <main>
+    <aside class="panel">
+      <label for="instruction">Task Instruction</label>
+      <textarea id="instruction">Find the television in the room</textarea>
+      <label for="backend">Simulator Backend</label>
+      <select id="backend">
+        <option value="ai2thor">Real AI2-THOR FloorPlan211 (strict, no fallback)</option>
+        <option value="local">Local FloorPlan211-compatible demo</option>
+      </select>
+      <label for="scene">Scene</label>
+      <input id="scene" value="FloorPlan211">
+      <label for="session">Session</label>
+      <input id="session" value="recorded-demo">
+      <div class="buttons">
+        <button id="runDemo">Run Demo</button>
+        <button class="secondary" id="play">Play Replay</button>
+        <button class="secondary" id="diag">Simulator Status</button>
+        <button class="secondary" id="audit">Audit API</button>
+      </div>
+      <div class="status" id="status">Ready. Run the strict AI2-THOR demo to generate a real simulator trajectory and video.</div>
+      <div class="env" id="env">Checking simulator runtime...</div>
+      <video id="video" controls></video>
+    </aside>
+    <section class="panel">
+      <div class="stage">
+        <div class="viewport"><img id="pov" alt="Robot first-person view"></div>
+        <div class="side-stack">
+          <div class="map"><img id="map" alt="Top-down search map"></div>
+          <div class="brain">
+            <div class="tag">Agent Decision</div>
+            <div class="action" id="action">WAITING</div>
+            <div class="confidence" id="confidence">Confidence 0.000</div>
+            <div class="meta">
+              <div class="metric">Backend<strong id="backendLabel">-</strong></div>
+              <div class="metric">Scene<strong id="sceneLabel">-</strong></div>
+            </div>
+            <div class="thought" id="thought">The demo has not started yet.</div>
+          </div>
+        </div>
+      </div>
+      <div class="timeline" id="timeline"></div>
+    </section>
+  </main>
+  <script>
+    let steps = [];
+    let cursor = 0;
+
+    function asset(path) {
+      return "/" + path.replaceAll("\\\\", "/");
+    }
+
+    function renderStep(index) {
+      if (!steps.length) return;
+      cursor = Math.max(0, Math.min(index, steps.length - 1));
+      const step = steps[cursor];
+      document.getElementById("pov").src = asset(step.observation_path);
+      document.getElementById("map").src = asset(step.topdown_path);
+      document.getElementById("action").textContent = step.action;
+      document.getElementById("confidence").textContent = `Confidence ${step.confidence.toFixed(3)}`;
+      document.getElementById("backendLabel").textContent = step.backend || currentBackend || "local";
+      document.getElementById("sceneLabel").textContent = step.scene || document.getElementById("scene").value;
+      document.getElementById("thought").textContent = step.thought;
+      document.querySelectorAll(".step-card").forEach((card, idx) => {
+        card.classList.toggle("active", idx === cursor);
+      });
+    }
+
+    function renderTimeline() {
+      const el = document.getElementById("timeline");
+      el.innerHTML = steps.map((step, idx) => `
+        <div class="step-card ${idx === 0 ? "active" : ""}" data-step="${idx}">
+          <strong>Step ${idx}: ${step.action}</strong>
+          <span>confidence ${step.confidence.toFixed(3)}</span>
+          <span>${step.visible_objects.join(", ") || "no object visible"}</span>
+        </div>
+      `).join("");
+      el.querySelectorAll(".step-card").forEach(card => {
+        card.addEventListener("click", () => renderStep(Number(card.dataset.step)));
+      });
+    }
+
+    async function runDemo() {
+      const status = document.getElementById("status");
+      const backend = document.getElementById("backend").value;
+      currentBackend = backend;
+      status.textContent = "Running simulator and Agent loop, then recording video...";
+      const endpoint = backend === "ai2thor" ? "/api/demo/ai2thor/run" : "/api/demo/run";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          instruction: document.getElementById("instruction").value,
+          scene: document.getElementById("scene").value,
+          max_steps: 20,
+          allow_fallback: false
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        status.textContent = data.detail || "Demo failed.";
+        return;
+      }
+      steps = data.steps;
+      renderTimeline();
+      renderStep(0);
+      const video = document.getElementById("video");
+      video.src = asset(data.video_path) + `?t=${Date.now()}`;
+      let note = `Generated ${steps.length} steps and recorded ${data.video_path}.`;
+      if (data.ai2thor_error) {
+        note += ` AI2-THOR fallback reason: ${data.ai2thor_error.slice(0, 180)}`;
+      }
+      status.textContent = note;
+    }
+
+    async function playReplay() {
+      if (!steps.length) await runDemo();
+      for (let i = 0; i < steps.length; i += 1) {
+        renderStep(i);
+        await new Promise(resolve => setTimeout(resolve, 900));
+      }
+    }
+
+    document.getElementById("runDemo").addEventListener("click", runDemo);
+    document.getElementById("play").addEventListener("click", playReplay);
+    document.getElementById("audit").addEventListener("click", async () => {
+      const res = await fetch("/api/agent/audit");
+      const data = await res.json();
+      document.getElementById("status").textContent = `API audit: ${JSON.stringify(data.model_adapter)}`;
+    });
+    document.getElementById("diag").addEventListener("click", loadStatus);
+
+    async function loadStatus() {
+      const res = await fetch("/api/simulator/status");
+      const data = await res.json();
+      document.getElementById("env").textContent =
+        `${data.backend} ${data.scene}\n${data.message}\nStrict AI2-THOR runs do not fall back automatically. Choose Local mode explicitly for the PPT-style fallback.`;
+    }
+
+    let currentBackend = "ai2thor";
+    loadStatus();
+    runDemo();
+  </script>
+</body>
+</html>

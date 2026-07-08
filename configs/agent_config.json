@@ -1,0 +1,77 @@
+{
+  "project": {
+    "name": "Embodied Visual Search Agent",
+    "version": "1.0.0",
+    "mode": "normal_plus_enhanced"
+  },
+  "pipeline": {
+    "stages": [
+      "validate_request",
+      "decode_observation",
+      "load_memory",
+      "analyze_vision",
+      "retrieve_hints",
+      "plan_action",
+      "validate_action",
+      "update_memory",
+      "emit_response"
+    ],
+    "output_contract": {
+      "thought": "short_explainable_summary",
+      "action": "configured_discrete_action",
+      "confidence": "0_to_1_float",
+      "done": "boolean"
+    }
+  },
+  "agent": {
+    "max_steps": 20,
+    "history_window": 6,
+    "repeated_action_penalty": 0.12,
+    "stop_confidence_threshold": 0.78,
+    "target_visible_threshold": 0.58,
+    "exploration_confidence_floor": 0.18,
+    "default_turn_angle_degrees": 30
+  },
+  "vision": {
+    "image_size": [448, 448],
+    "grid_rows": 3,
+    "grid_cols": 3,
+    "candidate_patch_size": 96,
+    "color_match_weight": 0.62,
+    "text_match_weight": 0.28,
+    "center_prior_weight": 0.10,
+    "min_candidate_area_ratio": 0.015
+  },
+  "memory": {
+    "long_term_capacity": 200,
+    "negative_memory_capacity": 80,
+    "retrieval_top_k": 3,
+    "persist_traces": true
+  },
+  "action_space": {
+    "allowed_actions": [
+      "MOVE_FORWARD",
+      "TURN_LEFT",
+      "TURN_RIGHT",
+      "LOOK_UP",
+      "LOOK_DOWN",
+      "INSPECT",
+      "STOP",
+      "ASK_CLARIFY"
+    ],
+    "terminal_actions": ["STOP", "ASK_CLARIFY"]
+  },
+  "data": {
+    "dataset_root": "datasets/embodied_search_v1",
+    "annotation_file": "datasets/embodied_search_v1/annotations/episodes.jsonl",
+    "trajectory_dir": "datasets/embodied_search_v1/trajectories",
+    "image_dir": "datasets/embodied_search_v1/images",
+    "annotation_format": "jsonl"
+  },
+  "evaluation": {
+    "success_stop_required": true,
+    "illegal_action_is_failure": true,
+    "max_episode_steps": 20,
+    "min_success_confidence": 0.78
+  }
+}

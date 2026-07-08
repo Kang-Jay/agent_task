@@ -1,0 +1,31 @@
+{
+  "problem_file": "D:\\cache\\SummerCap\\kaohe\\zju\\题目.txt",
+  "ppt_file": "D:\\cache\\SummerCap\\kaohe\\zju\\视觉搜索Agent示例.pptx",
+  "problem_text": "题目：具身视觉搜索Agent\n参考论文：Embodied-Reasoner ｜ SIMA2 | \n需求：多模态智能体在陌生中搜索目标物体。输入是任务指令和视觉观察，输出是思考+行动。通过多轮次交互，实现了目标寻找。\n输出形式：Agent或skill",
+  "slides": [
+    {
+      "slide": 1,
+      "text": "视觉搜索\nAgent\n支持两种指令输入｜长程记忆 ：\n基本功能：通过语言指令下达任务\n高级功能：考虑交互记忆\n增强功能：通过场景中点选某个物体，自动生成目标物体的截图 \n+\n 语言指令 从而下达任务"
+    },
+    {
+      "slide": 2,
+      "text": "输入指令和机器人第一视角的观察图，完成视觉搜索任务\n初始状态：设置任务指令\n（语言指令）\n和初始场景"
+    },
+    {
+      "slide": 3,
+      "text": "中间过程 \nStep2"
+    },
+    {
+      "slide": 4,
+      "text": "视频：交互轨迹"
+    },
+    {
+      "slide": 5,
+      "text": "多模态输入指令（语言 \n+\n 图像）\n，目标物体通过点选的方式交互\n多模态指令输入视频："
+    },
+    {
+      "slide": 6,
+      "text": "交互视频："
+    }
+  ]
+}

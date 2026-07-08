@@ -1,0 +1,100 @@
+{
+  "steps": [
+    {
+      "frame_path": "docs\\demo_outputs\\frames\\demo_frame_00.png",
+      "observation_path": "docs\\demo_outputs\\frames\\demo_obs_00.png",
+      "topdown_path": "docs\\demo_outputs\\frames\\demo_topdown_00.png",
+      "thought": "The target is not visible yet. Current view contains no reliable object; the agent keeps rotating to scan the unfamiliar room before confirming the red cup.",
+      "action": "TURN_RIGHT",
+      "confidence": 0.31,
+      "done": false,
+      "robot": {
+        "x": 1.2,
+        "y": 4.4,
+        "heading": -168.0
+      },
+      "best_candidate": null,
+      "visible_objects": [],
+      "backend": "local_ppt_style",
+      "scene": "FloorPlan211-compatible"
+    },
+    {
+      "frame_path": "docs\\demo_outputs\\frames\\demo_frame_01.png",
+      "observation_path": "docs\\demo_outputs\\frames\\demo_obs_01.png",
+      "topdown_path": "docs\\demo_outputs\\frames\\demo_topdown_01.png",
+      "thought": "The target is not visible yet. Current view contains sofa; the agent keeps rotating to scan the unfamiliar room before confirming the red cup.",
+      "action": "TURN_RIGHT",
+      "confidence": 0.31,
+      "done": false,
+      "robot": {
+        "x": 1.2,
+        "y": 4.4,
+        "heading": -138.0
+      },
+      "best_candidate": null,
+      "visible_objects": [
+        "sofa"
+      ],
+      "backend": "local_ppt_style",
+      "scene": "FloorPlan211-compatible"
+    },
+    {
+      "frame_path": "docs\\demo_outputs\\frames\\demo_frame_02.png",
+      "observation_path": "docs\\demo_outputs\\frames\\demo_obs_02.png",
+      "topdown_path": "docs\\demo_outputs\\frames\\demo_topdown_02.png",
+      "thought": "The target is not visible yet. Current view contains blue book, sofa; the agent keeps rotating to scan the unfamiliar room before confirming the red cup.",
+      "action": "TURN_RIGHT",
+      "confidence": 0.31,
+      "done": false,
+      "robot": {
+        "x": 1.2,
+        "y": 4.4,
+        "heading": -108.0
+      },
+      "best_candidate": null,
+      "visible_objects": [
+        "blue book",
+        "sofa"
+      ],
+      "backend": "local_ppt_style",
+      "scene": "FloorPlan211-compatible"
+    },
+    {
+      "frame_path": "docs\\demo_outputs\\frames\\demo_frame_03.png",
+      "observation_path": "docs\\demo_outputs\\frames\\demo_obs_03.png",
+      "topdown_path": "docs\\demo_outputs\\frames\\demo_topdown_03.png",
+      "thought": "Target-like evidence is strong; strongest candidate is a red region at middle right. Confidence 0.96 is high enough, so the agent stops and reports the target.",
+      "action": "STOP",
+      "confidence": 0.959,
+      "done": true,
+      "robot": {
+        "x": 1.2,
+        "y": 4.4,
+        "heading": -78.0
+      },
+      "best_candidate": {
+        "label": "red cup",
+        "bbox": [
+          252,
+          186,
+          384,
+          255
+        ],
+        "confidence": 0.959,
+        "color_name": "red",
+        "region": "middle right",
+        "reason": "red visual signature; located in middle right; matches requested color"
+      },
+      "visible_objects": [
+        "red cup",
+        "blue book",
+        "table",
+        "sofa"
+      ],
+      "backend": "local_ppt_style",
+      "scene": "FloorPlan211-compatible"
+    }
+  ],
+  "video_path": "docs\\demo_outputs\\embodied_visual_search_demo.mp4",
+  "summary_path": "docs\\demo_outputs\\demo_summary.json"
+}

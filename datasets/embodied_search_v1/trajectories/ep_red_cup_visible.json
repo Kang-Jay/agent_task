@@ -1,0 +1,40 @@
+{
+  "session_id": "ep_red_cup_visible",
+  "instruction": "Find the red cup on the table",
+  "steps": [
+    {
+      "step_id": 0,
+      "thought": "Target-like evidence is strong; strongest candidate is a red region at middle left. Confidence 0.95 is high enough, so the agent stops and reports the target.",
+      "action": {
+        "type": "STOP",
+        "args": {
+          "reason": "target confidence crossed stop threshold"
+        }
+      },
+      "confidence": 0.952,
+      "done": true,
+      "best_candidate": {
+        "label": "red cup",
+        "bbox": [
+          35,
+          245,
+          211,
+          311
+        ],
+        "confidence": 0.952,
+        "color_name": "red",
+        "region": "middle left",
+        "reason": "red visual signature; located in middle left; matches requested color"
+      },
+      "candidate_count": 3,
+      "retrieved_hints": [
+        "cups are often on tables, counters, or near sinks",
+        "inspect tabletop regions before floor regions"
+      ]
+    }
+  ],
+  "negative_memory": [],
+  "explored_regions": {
+    "middle left": 1
+  }
+}

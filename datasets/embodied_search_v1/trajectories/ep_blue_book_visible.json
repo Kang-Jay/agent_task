@@ -1,0 +1,40 @@
+{
+  "session_id": "ep_blue_book_visible",
+  "instruction": "找到蓝色书本",
+  "steps": [
+    {
+      "step_id": 0,
+      "thought": "Target-like evidence is strong; strongest candidate is a blue region at middle right. Confidence 0.92 is high enough, so the agent stops and reports the target.",
+      "action": {
+        "type": "STOP",
+        "args": {
+          "reason": "target confidence crossed stop threshold"
+        }
+      },
+      "confidence": 0.917,
+      "done": true,
+      "best_candidate": {
+        "label": "blue book",
+        "bbox": [
+          260,
+          170,
+          396,
+          291
+        ],
+        "confidence": 0.917,
+        "color_name": "blue",
+        "region": "middle right",
+        "reason": "blue visual signature; located in middle right; matches requested color"
+      },
+      "candidate_count": 2,
+      "retrieved_hints": [
+        "books often appear on desks, shelves, or sofas",
+        "scan horizontal surfaces and shelving"
+      ]
+    }
+  ],
+  "negative_memory": [],
+  "explored_regions": {
+    "middle right": 1
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "session_id": "recorded-demo",
+  "instruction": "Find the red cup on the table",
+  "steps": [
+    {
+      "step_id": 0,
+      "thought": "Target-like evidence is strong; strongest candidate is a red region at middle right. Confidence 0.96 is high enough, so the agent stops and reports the target.",
+      "action": {
+        "type": "STOP",
+        "args": {
+          "reason": "target confidence crossed stop threshold"
+        }
+      },
+      "confidence": 0.959,
+      "done": true,
+      "best_candidate": {
+        "label": "red cup",
+        "bbox": [
+          252,
+          186,
+          384,
+          255
+        ],
+        "confidence": 0.959,
+        "color_name": "red",
+        "region": "middle right",
+        "reason": "red visual signature; located in middle right; matches requested color"
+      },
+      "candidate_count": 1,
+      "retrieved_hints": [
+        "cups are often on tables, counters, or near sinks",
+        "inspect tabletop regions before floor regions"
+      ]
+    },
+    {
+      "step_id": 1,
+      "thought": "Target-like evidence is strong; strongest candidate is a red region at middle right. Confidence 0.95 is high enough, so the agent stops and reports the target.",
+      "action": {
+        "type": "STOP",
+        "args": {
+          "reason": "target confidence crossed stop threshold"
+        }
+      },
+      "confidence": 0.946,
+      "done": true,
+      "best_candidate": {
+        "label": "red cup",
+        "bbox": [
+          252,
+          186,
+          384,
+          255
+        ],
+        "confidence": 0.946,
+        "color_name": "red",
+        "region": "middle right",
+        "reason": "red visual signature; located in middle right; matches requested color"
+      },
+      "candidate_count": 1,
+      "retrieved_hints": [
+        "cups are often on tables, counters, or near sinks",
+        "inspect tabletop regions before floor regions",
+        "least repeated explored region so far: middle right"
+      ]
+    },
+    {
+      "step_id": 2,
+      "thought": "Target-like evidence is strong; strongest candidate is a red region at middle right. Confidence 0.87 is high enough, so the agent stops and reports the target.",
+      "action": {
+        "type": "STOP",
+        "args": {
+          "reason": "target confidence crossed stop threshold"
+        }
+      },
+      "confidence": 0.874,
+      "done": true,
+      "best_candidate": {
+        "label": "red cup",
+        "bbox": [
+          252,
+          186,
+          384,
+          255
+        ],
+        "confidence": 0.874,
+        "color_name": "red",
+        "region": "middle right",
+        "reason": "red visual signature; located in middle right; matches requested color"
+      },
+      "candidate_count": 1,
+      "retrieved_hints": [
+        "cups are often on tables, counters, or near sinks",
+        "inspect tabletop regions before floor regions",
+        "least repeated explored region so far: middle right"
+      ]
+    },
+    {
+      "step_id": 3,
+      "thought": "Target-like evidence is strong; strongest candidate is a red region at middle right. Confidence 0.96 is high enough, so the agent stops and reports the target.",
+      "action": {
+        "type": "STOP",
+        "args": {
+          "reason": "target confidence crossed stop threshold"
+        }
+      },
+      "confidence": 0.959,
+      "done": true,
+      "best_candidate": {
+        "label": "red cup",
+        "bbox": [
+          252,
+          186,
+          384,
+          255
+        ],
+        "confidence": 0.959,
+        "color_name": "red",
+        "region": "middle right",
+        "reason": "red visual signature; located in middle right; matches requested color"
+      },
+      "candidate_count": 3,
+      "retrieved_hints": [
+        "cups are often on tables, counters, or near sinks",
+        "inspect tabletop regions before floor regions",
+        "least repeated explored region so far: middle right"
+      ]
+    }
+  ],
+  "negative_memory": [],
+  "explored_regions": {
+    "middle right": 4
+  }
+}

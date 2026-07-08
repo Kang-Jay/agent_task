@@ -1,0 +1,59 @@
+{
+  "status": {
+    "available": false,
+    "backend": "ai2thor",
+    "scene": "FloorPlan211",
+    "message": "AI2-THOR PyPI builds do not provide a working native Windows Unity build here; run through WSL2/Linux with Vulkan configured.",
+    "diagnostics": {
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.12.4",
+      "ai2thor_import": true,
+      "vulkaninfo": "C:\\Windows\\system32\\vulkaninfo.EXE",
+      "nvidia_smi": "C:\\Windows\\system32\\nvidia-smi.EXE",
+      "wsl": false,
+      "ai2thor_version": "2.7.4"
+    },
+    "fallback": {
+      "available": true,
+      "backend": "local_ppt_style",
+      "message": "Local demo remains available for full web replay and video recording."
+    }
+  },
+  "audit_ok": true,
+  "model_adapter_ok": true,
+  "demo_backend": "local_ppt_style_fallback",
+  "requested_backend": "ai2thor",
+  "ai2thor_error": "AI2-THOR PyPI builds do not provide a working native Windows Unity build here; run through WSL2/Linux with Vulkan configured.",
+  "step_count": 4,
+  "last_action": "STOP",
+  "last_confidence": 0.959,
+  "video": {
+    "path": "docs\\demo_outputs\\embodied_visual_search_demo.mp4",
+    "frame_count": 8,
+    "width": 1600,
+    "height": 900
+  },
+  "sample_stats": [
+    {
+      "frame": 0,
+      "read": true,
+      "mean": 121.47,
+      "std": 95.39,
+      "path": "docs\\demo_outputs\\video_checks\\video_check_00.png"
+    },
+    {
+      "frame": 4,
+      "read": true,
+      "mean": 121.84,
+      "std": 94.89,
+      "path": "docs\\demo_outputs\\video_checks\\video_check_04.png"
+    },
+    {
+      "frame": 7,
+      "read": true,
+      "mean": 120.5,
+      "std": 94.77,
+      "path": "docs\\demo_outputs\\video_checks\\video_check_07.png"
+    }
+  ]
+}

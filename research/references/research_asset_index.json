@@ -1,0 +1,208 @@
+{
+  "papers": [
+    {
+      "id": "embodied_reasoner",
+      "title": "Embodied-Reasoner",
+      "url": "https://arxiv.org/pdf/2503.21696",
+      "status": "downloaded",
+      "path": "research\\papers\\embodied_reasoner.pdf",
+      "bytes": "6752792"
+    },
+    {
+      "id": "react",
+      "title": "ReAct",
+      "url": "https://arxiv.org/pdf/2210.03629",
+      "status": "downloaded",
+      "path": "research\\papers\\react.pdf",
+      "bytes": "633805"
+    },
+    {
+      "id": "saycan",
+      "title": "SayCan",
+      "url": "https://arxiv.org/pdf/2204.01691",
+      "status": "downloaded",
+      "path": "research\\papers\\saycan.pdf",
+      "bytes": "12827088"
+    },
+    {
+      "id": "voyager",
+      "title": "Voyager",
+      "url": "https://arxiv.org/pdf/2305.16291",
+      "status": "downloaded",
+      "path": "research\\papers\\voyager.pdf",
+      "bytes": "18830859"
+    },
+    {
+      "id": "reflexion",
+      "title": "Reflexion",
+      "url": "https://arxiv.org/pdf/2303.11366",
+      "status": "downloaded",
+      "path": "research\\papers\\reflexion.pdf",
+      "bytes": "591097"
+    },
+    {
+      "id": "sima",
+      "title": "SIMA",
+      "url": "https://arxiv.org/pdf/2404.10179",
+      "status": "downloaded",
+      "path": "research\\papers\\sima.pdf",
+      "bytes": "7410322"
+    },
+    {
+      "id": "vima",
+      "title": "VIMA",
+      "url": "https://arxiv.org/pdf/2210.03094",
+      "status": "downloaded",
+      "path": "research\\papers\\vima.pdf",
+      "bytes": "30270724"
+    },
+    {
+      "id": "palm_e",
+      "title": "PaLM-E",
+      "url": "https://arxiv.org/pdf/2303.03378",
+      "status": "downloaded",
+      "path": "research\\papers\\palm_e.pdf",
+      "bytes": "10707237"
+    },
+    {
+      "id": "rt_2",
+      "title": "RT-2",
+      "url": "https://arxiv.org/pdf/2307.15818",
+      "status": "downloaded",
+      "path": "research\\papers\\rt_2.pdf",
+      "bytes": "15668163"
+    },
+    {
+      "id": "llm_planner",
+      "title": "LLM-Planner",
+      "url": "https://arxiv.org/pdf/2212.04088",
+      "status": "downloaded",
+      "path": "research\\papers\\llm_planner.pdf",
+      "bytes": "784436"
+    },
+    {
+      "id": "hamt",
+      "title": "HAMT",
+      "url": "https://arxiv.org/pdf/2110.13309",
+      "status": "downloaded",
+      "path": "research\\papers\\hamt.pdf",
+      "bytes": "9687470"
+    }
+  ],
+  "codebases": [
+    {
+      "id": "ai2thor",
+      "repo": "allenai/ai2thor",
+      "readme": {
+        "status": "downloaded",
+        "path": "research\\codebases\\ai2thor\\README.md",
+        "bytes": "14577",
+        "url": "https://raw.githubusercontent.com/allenai/ai2thor/main/README.md"
+      },
+      "license": {
+        "status": "downloaded",
+        "path": "research\\codebases\\ai2thor\\LICENSE",
+        "bytes": "10767",
+        "url": "https://raw.githubusercontent.com/allenai/ai2thor/main/LICENSE"
+      }
+    },
+    {
+      "id": "habitat_lab",
+      "repo": "facebookresearch/habitat-lab",
+      "readme": {
+        "status": "downloaded",
+        "path": "research\\codebases\\habitat_lab\\README.md",
+        "bytes": "13988",
+        "url": "https://raw.githubusercontent.com/facebookresearch/habitat-lab/main/README.md"
+      },
+      "license": {
+        "status": "downloaded",
+        "path": "research\\codebases\\habitat_lab\\LICENSE",
+        "bytes": "1092",
+        "url": "https://raw.githubusercontent.com/facebookresearch/habitat-lab/main/LICENSE"
+      }
+    },
+    {
+      "id": "langgraph",
+      "repo": "langchain-ai/langgraph",
+      "readme": {
+        "status": "downloaded",
+        "path": "research\\codebases\\langgraph\\README.md",
+        "bytes": "6395",
+        "url": "https://raw.githubusercontent.com/langchain-ai/langgraph/main/README.md"
+      },
+      "license": {
+        "status": "downloaded",
+        "path": "research\\codebases\\langgraph\\LICENSE",
+        "bytes": "1072",
+        "url": "https://raw.githubusercontent.com/langchain-ai/langgraph/main/LICENSE"
+      }
+    },
+    {
+      "id": "mem0",
+      "repo": "mem0ai/mem0",
+      "readme": {
+        "status": "downloaded",
+        "path": "research\\codebases\\mem0\\README.md",
+        "bytes": "11679",
+        "url": "https://raw.githubusercontent.com/mem0ai/mem0/main/README.md"
+      },
+      "license": {
+        "status": "downloaded",
+        "path": "research\\codebases\\mem0\\LICENSE",
+        "bytes": "11349",
+        "url": "https://raw.githubusercontent.com/mem0ai/mem0/main/LICENSE"
+      }
+    },
+    {
+      "id": "llama_index",
+      "repo": "run-llama/llama_index",
+      "readme": {
+        "status": "downloaded",
+        "path": "research\\codebases\\llama_index\\README.md",
+        "bytes": "13365",
+        "url": "https://raw.githubusercontent.com/run-llama/llama_index/main/README.md"
+      },
+      "license": {
+        "status": "downloaded",
+        "path": "research\\codebases\\llama_index\\LICENSE",
+        "bytes": "1065",
+        "url": "https://raw.githubusercontent.com/run-llama/llama_index/main/LICENSE"
+      }
+    },
+    {
+      "id": "chroma",
+      "repo": "chroma-core/chroma",
+      "readme": {
+        "status": "downloaded",
+        "path": "research\\codebases\\chroma\\README.md",
+        "bytes": "3273",
+        "url": "https://raw.githubusercontent.com/chroma-core/chroma/main/README.md"
+      },
+      "license": {
+        "status": "downloaded",
+        "path": "research\\codebases\\chroma\\LICENSE",
+        "bytes": "11357",
+        "url": "https://raw.githubusercontent.com/chroma-core/chroma/main/LICENSE"
+      }
+    },
+    {
+      "id": "chainlit",
+      "repo": "Chainlit/chainlit",
+      "readme": {
+        "status": "downloaded",
+        "path": "research\\codebases\\chainlit\\README.md",
+        "bytes": "17",
+        "url": "https://raw.githubusercontent.com/Chainlit/chainlit/main/README.md"
+      },
+      "license": {
+        "status": "downloaded",
+        "path": "research\\codebases\\chainlit\\LICENSE",
+        "bytes": "11413",
+        "url": "https://raw.githubusercontent.com/Chainlit/chainlit/main/LICENSE"
+      }
+    }
+  ],
+  "forum_notes": "research\\forum\\community_reception_notes.md",
+  "usage": "Downloaded files are research memory/reference assets. Runtime code remains dependency-light and config-driven."
+}

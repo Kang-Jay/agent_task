@@ -4,7 +4,7 @@
   "steps": [
     {
       "step_id": 0,
-      "thought": "Target-like evidence is strong; strongest candidate is a green region at middle left. Confidence 0.95 is high enough, so the agent stops and reports the target.",
+      "thought": "Target-like evidence is strong; strongest candidate is a green region at middle left. 置信度 0.95 已足够高，智能体停止并报告目标。",
       "action": {
         "type": "STOP",
         "args": {

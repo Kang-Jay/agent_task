@@ -49,6 +49,8 @@ class DemoStep:
     visible_objects: list[str]
     backend: str = "local_ppt_style"
     scene: str = "FloorPlan211-compatible"
+    structured_thought: dict[str, str] | None = None
+    target_binding: dict[str, Any] | None = None
 
 
 @dataclass
@@ -126,6 +128,8 @@ class RoomSimulator:
                     visible_objects=visible_names,
                     backend="local_ppt_style",
                     scene="FloorPlan211-compatible",
+                    structured_thought=response_dict.get("structured_thought"),
+                    target_binding=response_dict.get("target_binding"),
                 )
             )
             if done:

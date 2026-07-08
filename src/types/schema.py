@@ -69,6 +69,7 @@ class AgentResponse:
     search_map: dict[str, Any] = field(default_factory=dict)
     confidence_trace: list[float] = field(default_factory=list)
     target_binding: dict[str, Any] = field(default_factory=dict)
+    structured_thought: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,4 +86,5 @@ class AgentResponse:
             "search_map": self.search_map,
             "confidence_trace": self.confidence_trace,
             "target_binding": self.target_binding,
+            "structured_thought": self.structured_thought,
         }

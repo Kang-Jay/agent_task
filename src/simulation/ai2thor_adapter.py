@@ -188,6 +188,8 @@ class AI2ThorVisualSearchDemo:
                         visible_objects=visible_objects[:10],
                         backend="ai2thor",
                         scene=self.scene,
+                        structured_thought=response_dict.get("structured_thought"),
+                        target_binding=response_dict.get("target_binding"),
                     )
                 )
                 if done:

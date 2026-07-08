@@ -32,6 +32,7 @@ class EmbodiedSearchAgent:
         confidence = analysis.best_candidate.confidence if analysis.best_candidate else 0.0
         done = action.type in self.config.terminal_actions
         thought = self._build_thought(analysis.scene_summary, action, confidence, hints, done)
+        structured_thought = self._build_structured_thought(analysis, action, confidence, hints, done)
         step_record = {
             "step_id": request.step_id,
             "thought": thought,
@@ -62,6 +63,7 @@ class EmbodiedSearchAgent:
                 "target_crop": bool(request.target_crop or request.clicked_point),
                 "mode": "multimodal" if request.target_crop or request.clicked_point else "language_only",
             },
+            structured_thought=structured_thought,
         )
 
     def audit(self) -> dict[str, object]:
@@ -114,7 +116,46 @@ class EmbodiedSearchAgent:
         return action
 
     def _build_thought(self, scene_summary: str, action: Action, confidence: float, hints: list[str], done: bool) -> str:
-        hint_text = "; ".join(hints) if hints else "no retrieved prior is needed"
+        hint_text = "; ".join(hints) if hints else "暂无相关记忆"
         if done:
-            return f"{scene_summary} Confidence {confidence:.2f} is high enough, so the agent stops and reports the target."
-        return f"{scene_summary} Retrieved hint: {hint_text}. Next action is {action.type} because confidence is {confidence:.2f}."
+            return f"{scene_summary} 置信度 {confidence:.2f} 已足够高，智能体停止并报告目标。"
+        return f"{scene_summary} 检索提示: {hint_text}。下一步动作是 {action.type}，因为置信度为 {confidence:.2f}。"
+
+    def _build_structured_thought(self, analysis, action: Action, confidence: float, hints: list[str], done: bool) -> dict[str, str]:
+        """构建结构化的中文思考输出"""
+        # 视觉观察
+        best = analysis.best_candidate
+        if best:
+            observation = f"当前画面{best.region}有一个{best.color_name}的区域，可能是目标物体。置信度：{confidence:.2f}"
+        else:
+            observation = "当前画面中未检测到明显的目标物体特征，需要继续探索。"
+
+        # 推理过程
+        if done:
+            reasoning = f"目标已确认！置信度 {confidence:.2f} 超过阈值 {self.config.stop_confidence_threshold:.2f}，可以停止搜索。"
+        elif confidence >= self.config.target_visible_threshold:
+            reasoning = f"发现疑似目标，但置信度 {confidence:.2f} 还不够高，需要更近距离观察或换个角度。"
+        else:
+            reasoning = f"当前区域置信度较低 ({confidence:.2f})，建议继续探索其他区域。"
+            if hints:
+                reasoning += f" 记忆提示：{hints[0]}"
+
+        # 动作映射
+        action_map = {
+            "MOVE_FORWARD": "向前移动",
+            "TURN_LEFT": "向左转",
+            "TURN_RIGHT": "向右转",
+            "LOOK_UP": "向上看",
+            "LOOK_DOWN": "向下看",
+            "INSPECT": "仔细检查",
+            "STOP": "停止",
+            "ASK_CLARIFY": "请求澄清"
+        }
+        action_text = action_map.get(action.type, action.type)
+
+        return {
+            "observation": observation,
+            "reasoning": reasoning,
+            "action": action_text,
+            "confidence": f"{confidence:.3f}"
+        }

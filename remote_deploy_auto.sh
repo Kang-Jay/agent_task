@@ -3,7 +3,7 @@
 # 本脚本在本地执行，会自动 SSH 到远端并启动服务
 
 REMOTE_HOST="3090GPU2"
-REMOTE_PATH="/path/to/kaohe/zju"  # 请修改为实际路径
+REMOTE_PATH="/home/scale/kangjay/kaohe/zju"
 LOCAL_PORT="18000"
 REMOTE_PORT="8000"
 

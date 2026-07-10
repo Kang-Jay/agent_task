@@ -171,12 +171,13 @@ class EpisodicMemoryStoreTests(unittest.TestCase):
             action_success=False,
             environment={"backend": "test", "scene": "unit-room"},
         )
-        first_agent.commit_execution(
-            "failed-cup-search",
-            first_response,
-            action_success=False,
-            environment={"backend": "test", "scene": "unit-room"},
-        )
+        with self.assertRaisesRegex(ValueError, "already committed"):
+            first_agent.commit_execution(
+                "failed-cup-search",
+                first_response,
+                action_success=False,
+                environment={"backend": "test", "scene": "unit-room"},
+            )
         self.assertEqual(
             first_agent.memory.episodic_store.count(namespace="visual_search"),
             1,

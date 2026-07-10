@@ -8,6 +8,7 @@ from typing import Any
 from PIL import Image
 
 from src.agent.task_semantics import TaskSemantics
+from src.simulation.ai2thor_approach import AI2ThorApproachVerifier
 from src.simulation.ai2thor_interactions import AI2ThorInteractionResolver
 from src.simulation.ai2thor_postconditions import AI2ThorPostconditionVerifier
 from src.simulation.ai2thor_runtime import (
@@ -85,6 +86,7 @@ def run_validation(output_dir: Path) -> dict[str, Any]:
     task_verifier = TaskVerifier()
     task_plan = TaskSemantics().analyze(INSTRUCTION, mode="default")
     resolver = AI2ThorInteractionResolver()
+    approach_verifier = AI2ThorApproachVerifier()
     rotate_step_degrees = 30.0
     try:
         controller = create_controller_safely(
@@ -116,6 +118,17 @@ def run_validation(output_dir: Path) -> dict[str, Any]:
         _save_frame(before_crouch, output_dir / "00_approached_sofa.png")
 
         context_before = resolver.build_context(before_crouch.metadata)
+        approach_before = approach_verifier.verify(
+            controller,
+            mode="default",
+            metadata=before_crouch.metadata,
+            object_id=sofa_id,
+        ).to_context()
+        context_before["approach"] = approach_before
+        if not approach_before["verified"]:
+            raise RuntimeError(
+                "Sofa approach is not an AI2-THOR interactable pose"
+            )
         visible_sofa_before = next(
             (
                 item
@@ -139,6 +152,13 @@ def run_validation(output_dir: Path) -> dict[str, Any]:
         )
         _save_frame(crouch_event, output_dir / "01_crouched_near_sofa.png")
         context_after = resolver.build_context(crouch_event.metadata)
+        context_after["approach"] = {
+            **approach_before,
+            "verifiedAt": "pre_action",
+            "reason": (
+                "Crouch executed from the verified target interaction pose"
+            ),
+        }
         verification = task_verifier.verify(
             task_plan,
             steps=[

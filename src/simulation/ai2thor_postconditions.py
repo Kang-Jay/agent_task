@@ -73,7 +73,17 @@ class AI2ThorPostconditionVerifier:
             )
         if action in {"Crouch", "Stand"}:
             expected = action == "Stand"
-            actual = bool((after.get("agent") or {}).get("isStanding", False))
+            actual = (after.get("agent") or {}).get("isStanding")
+            if not isinstance(actual, bool):
+                return self._result(
+                    action,
+                    False,
+                    "agent isStanding is unavailable",
+                    {
+                        "expected_isStanding": expected,
+                        "actual_isStanding": actual,
+                    },
+                )
             return self._result(
                 action,
                 actual == expected,

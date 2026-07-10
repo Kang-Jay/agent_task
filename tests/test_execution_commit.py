@@ -109,6 +109,153 @@ class ExecutionCommitTests(unittest.TestCase):
         self.assertTrue(trace["steps"][0]["action_success"])
         self.assertNotIn("action_success", trace["steps"][1])
 
+    def test_post_action_verification_completes_crouch_same_step(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        session_id = "execution-same-step-completion"
+        image_path = str(
+            self.config.image_dir / "ep_red_cup_visible_000.png"
+        )
+        context_before = {
+            "agent": {"isStanding": True},
+            "objects": [
+                {
+                    "objectId": "Sofa|1",
+                    "objectType": "Sofa",
+                    "visible": True,
+                    "distance": 1.2,
+                }
+            ],
+            "approach": {
+                "verified": True,
+                "objectId": "Sofa|1",
+                "source": "ai2thor_interactable_pose",
+            },
+        }
+        response = agent.step(
+            AgentRequest(
+                session_id=session_id,
+                instruction="找到沙发并坐下",
+                observation_image=image_path,
+                step_id=0,
+                environment_context=context_before,
+            )
+        )
+        response_dict = response.to_dict()
+        response_dict["action"] = {"type": "Crouch", "args": {}}
+        response_dict["done"] = False
+        context_after = {
+            **context_before,
+            "agent": {"isStanding": False},
+        }
+
+        committed = agent.commit_execution(
+            session_id,
+            response_dict,
+            step_id=0,
+            action_success=True,
+            environment_context=context_after,
+        )
+
+        self.assertTrue(committed["done"])
+        self.assertTrue(committed["completion_status"]["complete"])
+        self.assertEqual(
+            committed["completion_status"]["outcome"],
+            "approximate_success",
+        )
+        self.assertEqual(
+            committed["execution_plan"]["status"],
+            "completed",
+        )
+        trace = agent.export_trace(session_id)
+        self.assertTrue(trace["steps"][0]["done"])
+        self.assertTrue(
+            trace["steps"][0]["completion_status"]["complete"]
+        )
+
+    def test_failed_crouch_stays_incomplete_same_step(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        session_id = "execution-same-step-failure"
+        context = {
+            "agent": {"isStanding": True},
+            "objects": [
+                {
+                    "objectId": "Sofa|1",
+                    "objectType": "Sofa",
+                    "visible": True,
+                }
+            ],
+            "approach": {
+                "verified": True,
+                "objectId": "Sofa|1",
+                "source": "ai2thor_interactable_pose",
+            },
+        }
+        response = agent.step(
+            AgentRequest(
+                session_id=session_id,
+                instruction="找到沙发并坐下",
+                observation_image=str(
+                    self.config.image_dir
+                    / "ep_red_cup_visible_000.png"
+                ),
+                step_id=0,
+                environment_context=context,
+            )
+        )
+        response_dict = response.to_dict()
+        response_dict["action"] = {"type": "Crouch", "args": {}}
+        response_dict["done"] = False
+
+        committed = agent.commit_execution(
+            session_id,
+            response_dict,
+            step_id=0,
+            action_success=False,
+            environment_context=context,
+        )
+
+        self.assertFalse(committed["done"])
+        self.assertFalse(committed["completion_status"]["complete"])
+        self.assertIn(
+            "Crouch",
+            committed["completion_status"]["missing_actions"],
+        )
+
+    def test_latest_step_cannot_be_committed_twice(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        session_id = "execution-duplicate"
+        response = agent.step(
+            AgentRequest(
+                session_id=session_id,
+                instruction="Find the red cup",
+                observation_image=str(
+                    self.config.image_dir
+                    / "ep_red_cup_visible_000.png"
+                ),
+                step_id=0,
+            )
+        )
+        agent.commit_execution(
+            session_id,
+            response.to_dict(),
+            action_success=True,
+        )
+        with self.assertRaisesRegex(ValueError, "already committed"):
+            agent.commit_execution(
+                session_id,
+                response.to_dict(),
+                action_success=True,
+            )
+
     def test_session_id_rejects_path_traversal(self) -> None:
         agent = EmbodiedSearchAgent(
             self.config,

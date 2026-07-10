@@ -24,6 +24,16 @@ ABSTRACT_ACTION_ALIASES = {
     "INSPECT": "Pass",
     "STOP": "Done",
 }
+NATIVE_ACTION_ARGUMENT_ALIASES = {
+    "MoveAhead": {"distance": "moveMagnitude"},
+    "MoveBack": {"distance": "moveMagnitude"},
+    "MoveLeft": {"distance": "moveMagnitude"},
+    "MoveRight": {"distance": "moveMagnitude"},
+    "RotateLeft": {"angle": "degrees"},
+    "RotateRight": {"angle": "degrees"},
+    "LookUp": {"angle": "degrees"},
+    "LookDown": {"angle": "degrees"},
+}
 
 
 @dataclass(frozen=True)
@@ -136,6 +146,24 @@ class AI2ThorActionCatalog:
     def get(self, action: str) -> dict[str, Any] | None:
         return self._actions.get(self.resolve_name(action))
 
+    def normalize_args(
+        self,
+        action: str,
+        args: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        normalized_action = self.resolve_name(action)
+        normalized_args = dict(args or {})
+        for abstract_name, native_name in NATIVE_ACTION_ARGUMENT_ALIASES.get(
+            normalized_action,
+            {},
+        ).items():
+            if abstract_name not in normalized_args:
+                continue
+            if native_name in normalized_args:
+                continue
+            normalized_args[native_name] = normalized_args.pop(abstract_name)
+        return normalized_args
+
     def list_actions(
         self,
         *,
@@ -172,7 +200,7 @@ class AI2ThorActionCatalog:
         actor: Literal["agent", "manual", "system"] = "agent",
     ) -> ActionValidation:
         normalized_action = self.resolve_name(action)
-        normalized_args = dict(args or {})
+        normalized_args = self.normalize_args(action, args)
         errors: list[str] = []
         warnings: list[str] = []
         if mode not in self._payload["mode_controllers"]:

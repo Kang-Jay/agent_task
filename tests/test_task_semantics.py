@@ -52,7 +52,7 @@ class TaskSemanticsTests(unittest.TestCase):
         self.assertFalse(status["approach_verified"])
         self.assertEqual(status["outcome"], "in_progress")
 
-    def test_approached_sofa_without_crouch_is_incomplete(self):
+    def test_finite_target_distance_does_not_prove_approach(self):
         plan = self.semantics.analyze("找到沙发并坐下", mode="default")
         status = plan.completion_status(
             steps=[],
@@ -67,8 +67,66 @@ class TaskSemanticsTests(unittest.TestCase):
             },
         )
         self.assertFalse(status["complete"])
-        self.assertTrue(status["approach_verified"])
+        self.assertFalse(status["approach_verified"])
         self.assertIn("Crouch", status["missing_actions"])
+
+    def test_verified_target_aligned_pose_proves_approach(self):
+        plan = self.semantics.analyze("找到沙发并坐下", mode="default")
+        status = plan.completion_status(
+            steps=[],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "agent": {"isStanding": True},
+                "objects": [
+                    {
+                        "objectId": "Sofa|1",
+                        "objectType": "Sofa",
+                        "visible": True,
+                        "distance": 1.2,
+                    }
+                ],
+                "approach": {
+                    "verified": True,
+                    "objectId": "Sofa|1",
+                    "source": "ai2thor_interactable_pose",
+                },
+            },
+        )
+        self.assertFalse(status["complete"])
+        self.assertTrue(status["approach_verified"])
+        self.assertEqual(status["approach_object_id"], "Sofa|1")
+
+    def test_approach_evidence_must_match_instruction_target(self):
+        plan = self.semantics.analyze("找到沙发并坐下", mode="default")
+        status = plan.completion_status(
+            steps=[],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "agent": {"isStanding": True},
+                "objects": [
+                    {
+                        "objectId": "Sofa|1",
+                        "objectType": "Sofa",
+                        "visible": True,
+                    },
+                    {
+                        "objectId": "ArmChair|1",
+                        "objectType": "ArmChair",
+                        "visible": True,
+                    },
+                ],
+                "approach": {
+                    "verified": True,
+                    "objectId": "ArmChair|1",
+                    "source": "ai2thor_interactable_pose",
+                },
+            },
+        )
+        self.assertFalse(status["approach_verified"])
 
     def test_crouched_near_sofa_is_approximate_success(self):
         plan = self.semantics.analyze("找到沙发并坐下", mode="default")
@@ -85,8 +143,18 @@ class TaskSemanticsTests(unittest.TestCase):
             environment_context={
                 "agent": {"isStanding": False},
                 "objects": [
-                    {"objectType": "Sofa", "visible": True, "distance": 1.2}
+                    {
+                        "objectId": "Sofa|1",
+                        "objectType": "Sofa",
+                        "visible": True,
+                        "distance": 1.2,
+                    }
                 ],
+                "approach": {
+                    "verified": True,
+                    "objectId": "Sofa|1",
+                    "source": "ai2thor_interactable_pose",
+                },
             },
         )
         self.assertTrue(status["complete"])

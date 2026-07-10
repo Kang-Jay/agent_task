@@ -55,10 +55,13 @@ class TaskPlan:
         ]
         context = environment_context or {}
         agent_state = context.get("agent") or {}
-        visible_targets = [
+        matching_targets = [
             item
             for item in context.get("objects", [])
-            if bool(item.get("visible")) and self._matches_instruction_target(item)
+            if self._matches_instruction_target(item)
+        ]
+        visible_targets = [
+            item for item in matching_targets if bool(item.get("visible"))
         ]
         target_visible_in_environment = bool(visible_targets)
         target_distances: list[float] = []
@@ -70,7 +73,22 @@ class TaskPlan:
             if math.isfinite(distance) and distance >= 0.0:
                 target_distances.append(distance)
         target_distance = min(target_distances, default=None)
-        approach_verified = target_visible_in_environment and target_distance is not None
+        target_object_ids = {
+            str(item.get("objectId") or item.get("name") or "")
+            for item in matching_targets
+            if item.get("objectId") or item.get("name")
+        }
+        approach_evidence = context.get("approach") or {}
+        approach_object_id = str(approach_evidence.get("objectId") or "")
+        approach_verified = (
+            bool(approach_evidence.get("verified"))
+            and bool(approach_object_id)
+            and approach_object_id in target_object_ids
+        )
+        approach_source = str(
+            approach_evidence.get("source")
+            or "no verified approach evidence"
+        )
         agent_is_standing = agent_state.get("isStanding")
         subgoal_progress: list[dict[str, Any]] = []
 
@@ -78,7 +96,11 @@ class TaskPlan:
             complete = False
             reason = "task requests unsupported embodied capabilities"
         elif self.completion_mode == "approximate_sit":
-            located = target_visible or target_visible_in_environment
+            located = (
+                target_visible
+                or target_visible_in_environment
+                or approach_verified
+            )
             approached = approach_verified
             crouch_succeeded = "Crouch" in successful_actions
             posture_verified = crouch_succeeded and agent_is_standing is False
@@ -106,9 +128,9 @@ class TaskPlan:
                     "id": "approach_target",
                     "complete": approached,
                     "evidence": (
-                        f"AI2-THOR visible target distance={target_distance:.3f}m"
-                        if target_distance is not None
-                        else "AI2-THOR did not provide finite target-distance evidence"
+                        f"{approach_source}; objectId={approach_object_id}"
+                        if approached
+                        else "AI2-THOR did not verify a target-aligned interaction pose"
                     ),
                 },
                 {
@@ -165,6 +187,8 @@ class TaskPlan:
             "target_visible_in_environment": target_visible_in_environment,
             "target_distance": target_distance,
             "approach_verified": approach_verified,
+            "approach_object_id": approach_object_id or None,
+            "approach_source": approach_source,
             "agent_is_standing": agent_is_standing,
             "subgoal_progress": subgoal_progress,
         }

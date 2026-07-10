@@ -311,16 +311,67 @@ class ModelPlannerTests(unittest.TestCase):
                         },
                     )
                 )
-        self.assertEqual(response.action.type, "Crouch")
+        self.assertEqual(response.action.type, "MOVE_FORWARD")
         self.assertTrue(response.task_plan["supported"])
         self.assertFalse(response.task_plan["is_visual_search"])
         self.assertFalse(response.completion_status["complete"])
         self.assertEqual(response.completion_status["outcome"], "in_progress")
         self.assertEqual(response.fallback_reason, "premature_done_replanned")
         self.assertFalse(response.done)
-        self.assertIn("approximation", response.action.args["reason"])
+        self.assertIn("approach target", response.action.args["reason"])
         self.assertIn("任务尚未完成", response.thought)
         self.assertIn("任务未完成", response.structured_thought["reasoning"])
+
+    def test_agent_replans_premature_crouch_before_approach(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        mock_result = {
+            "thought_summary": "The sofa is visible, so crouch now.",
+            "action": {"type": "Crouch", "args": {}},
+            "confidence": 0.9,
+        }
+        with patch.object(
+            agent.model_adapter,
+            "plan_action",
+            return_value=mock_result,
+        ):
+            with patch.object(
+                agent.model_adapter,
+                "available",
+                return_value=True,
+            ):
+                image_path = (
+                    self.config.image_dir
+                    / "ep_red_cup_visible_000.png"
+                )
+                response = agent.step(
+                    AgentRequest(
+                        session_id="test-premature-crouch",
+                        instruction="走到沙发上并坐下",
+                        observation_image=str(image_path),
+                        step_id=0,
+                        environment_context={
+                            "agent": {"isStanding": True},
+                            "objects": [
+                                {
+                                    "objectId": "Sofa|1",
+                                    "objectType": "Sofa",
+                                    "visible": True,
+                                    "distance": 1.2,
+                                }
+                            ],
+                        },
+                    )
+                )
+
+        self.assertEqual(response.action.type, "MOVE_FORWARD")
+        self.assertEqual(
+            response.fallback_reason,
+            "premature_crouch_replanned",
+        )
+        self.assertFalse(response.done)
 
     def test_agent_fallback_when_model_returns_illegal_action(self) -> None:
         """Test agent falls back to rules when model returns illegal action."""

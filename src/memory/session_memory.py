@@ -73,6 +73,7 @@ class SessionMemory:
             self.long_term_events.append(
                 {
                     "session_id": state.session_id,
+                    "step_id": step.get("step_id"),
                     "instruction": state.instruction,
                     "action": step.get("action", {}).get("type"),
                     "confidence": step.get("confidence"),
@@ -232,6 +233,10 @@ class SessionMemory:
             raise ValueError(f"session has no pending step to commit: {session_id}")
         if step_id is None:
             step = state.steps[-1]
+            if "action_success" in step:
+                raise ValueError(
+                    f"session {session_id} latest step was already committed"
+                )
         else:
             step = next(
                 (
@@ -264,12 +269,20 @@ class SessionMemory:
         if environment is not None:
             step["environment"] = dict(environment)
 
-        if self.long_term_events:
-            event = self.long_term_events[-1]
-            if event.get("session_id") == session_id:
-                event["action"] = executed_action.get("type")
-                event["confidence"] = float(confidence)
-                event["action_success"] = bool(action_success)
+        committed_step_id = step.get("step_id")
+        event = next(
+            (
+                candidate
+                for candidate in reversed(self.long_term_events)
+                if candidate.get("session_id") == session_id
+                and candidate.get("step_id") == committed_step_id
+            ),
+            None,
+        )
+        if event is not None:
+            event["action"] = executed_action.get("type")
+            event["confidence"] = float(confidence)
+            event["action_success"] = bool(action_success)
 
         if "episodic_memory_id" not in step:
             best = step.get("best_candidate") or {}
@@ -303,6 +316,42 @@ class SessionMemory:
         if self.config.raw["memory"]["persist_traces"]:
             self._persist_trace(state)
         return state
+
+    def finalize_execution(
+        self,
+        state: SessionState,
+        *,
+        step_id: int,
+        completion_status: dict[str, Any],
+        done: bool,
+        environment_context: dict[str, Any] | None = None,
+    ) -> SessionState:
+        with self._lock:
+            step = next(
+                (
+                    candidate
+                    for candidate in reversed(state.steps)
+                    if candidate.get("step_id") == step_id
+                ),
+                None,
+            )
+            if step is None or "action_success" not in step:
+                raise ValueError(
+                    f"session {state.session_id} step_id={step_id} "
+                    "must be committed before finalization"
+                )
+            step["completion_status"] = dict(completion_status)
+            step["done"] = bool(done)
+            if environment_context is not None:
+                step["environment_context"] = dict(environment_context)
+            self.update_execution_plan(
+                state,
+                completion_status,
+                step_id=step_id,
+            )
+            if self.config.raw["memory"]["persist_traces"]:
+                self._persist_trace(state)
+            return state
 
     def summarize(self, state: SessionState) -> str:
         if not state.steps:

@@ -52,6 +52,25 @@ class AI2ThorActionCatalogTests(unittest.TestCase):
             ]
         )
 
+    def test_abstract_navigation_arguments_are_normalized(self):
+        move = self.catalog.validate(
+            mode="default",
+            action="MOVE_FORWARD",
+            args={"distance": 0.25},
+            actor="agent",
+        )
+        turn = self.catalog.validate(
+            mode="default",
+            action="TURN_RIGHT",
+            args={"angle": 30},
+            actor="agent",
+        )
+
+        self.assertTrue(move.valid, move.errors)
+        self.assertEqual(move.normalized_args, {"moveMagnitude": 0.25})
+        self.assertTrue(turn.valid, turn.errors)
+        self.assertEqual(turn.normalized_args, {"degrees": 30})
+
     def test_drone_only_action_is_mode_gated(self):
         default_validation = self.catalog.validate(
             mode="default",
@@ -111,6 +130,22 @@ class AI2ThorActionCatalogTests(unittest.TestCase):
         self.assertEqual(
             controller.calls,
             [{"action": "FlyUp", "moveMagnitude": 0.25}],
+        )
+
+    def test_executor_translates_abstract_navigation_arguments(self):
+        controller = _FakeController()
+        execution = AI2ThorActionExecutor(self.catalog).execute(
+            controller,
+            mode="default",
+            action="MOVE_FORWARD",
+            args={"distance": 0.25},
+            actor="agent",
+        )
+
+        self.assertTrue(execution.success)
+        self.assertEqual(
+            controller.calls,
+            [{"action": "MoveAhead", "moveMagnitude": 0.25}],
         )
 
     def test_runtime_identity_must_match_catalog(self):

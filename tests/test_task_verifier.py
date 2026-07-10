@@ -41,8 +41,18 @@ class TaskVerifierTests(unittest.TestCase):
             environment_context={
                 "agent": {"isStanding": False},
                 "objects": [
-                    {"objectType": "Sofa", "visible": True, "distance": 1.2}
+                    {
+                        "objectId": "Sofa|1",
+                        "objectType": "Sofa",
+                        "visible": True,
+                        "distance": 1.2,
+                    }
                 ],
+                "approach": {
+                    "verified": True,
+                    "objectId": "Sofa|1",
+                    "source": "ai2thor_interactable_pose",
+                },
             },
         )
         self.assertTrue(result.complete)

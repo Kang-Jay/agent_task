@@ -104,6 +104,25 @@ class AI2ThorPostconditionVerifierTests(unittest.TestCase):
         self.assertTrue(result.checked)
         self.assertFalse(result.passed)
 
+    def test_crouch_requires_explicit_boolean_posture(self):
+        missing = self.verifier.verify(
+            action="Crouch",
+            args={},
+            before={"agent": {"isStanding": True}},
+            after={"agent": {}},
+            runtime_success=True,
+        )
+        crouched = self.verifier.verify(
+            action="Crouch",
+            args={},
+            before={"agent": {"isStanding": True}},
+            after={"agent": {"isStanding": False}},
+            runtime_success=True,
+        )
+
+        self.assertFalse(missing.passed)
+        self.assertTrue(crouched.passed)
+
     def test_unregistered_postcondition_is_explicitly_unchecked(self):
         result = self.verifier.verify(
             action="GetSceneBounds",

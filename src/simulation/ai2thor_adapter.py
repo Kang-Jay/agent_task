@@ -18,6 +18,7 @@ from PIL import Image, ImageDraw
 
 from src.agent.controller import EmbodiedSearchAgent
 from src.simulation.ai2thor_actions import AI2ThorActionCatalog, AI2ThorActionExecutor
+from src.simulation.ai2thor_approach import AI2ThorApproachVerifier
 from src.simulation.ai2thor_interactions import (
     AI2ThorInteractionResolver,
     OBJECT_ID_ACTIONS,
@@ -90,6 +91,9 @@ class AI2ThorVisualSearchDemo:
         if agent_mode not in self.action_catalog.summary()["mode_controllers"]:
             raise ValueError(f"Unsupported AI2-THOR agent mode: {agent_mode}")
         self.action_executor = AI2ThorActionExecutor(self.action_catalog)
+        self.approach_verifier = AI2ThorApproachVerifier(
+            self.action_executor
+        )
         self.interaction_resolver = AI2ThorInteractionResolver()
         self.postconditions = AI2ThorPostconditionVerifier()
 
@@ -241,11 +245,32 @@ class AI2ThorVisualSearchDemo:
             event = reachable_event
             agent_path: list[dict[str, float]] = []
             confirmed_target_steps = 0
+            bound_target_object_id: str | None = None
             for step_id in range(max_steps):
                 StreamEventEmitter.raise_if_cancelled(cancel_event)
+                grounded_target = self._ground_target_from_segmentation(
+                    event,
+                    instruction,
+                )
+                if grounded_target:
+                    bound_target_object_id = str(
+                        grounded_target["object_id"]
+                    )
                 environment_context = self.interaction_resolver.build_context(
                     event.metadata
                 )
+                if (
+                    "navigate_to" in task_plan.task_types
+                    and bound_target_object_id
+                ):
+                    environment_context["approach"] = (
+                        self.approach_verifier.verify(
+                            controller,
+                            mode=self.agent_mode,
+                            metadata=event.metadata,
+                            object_id=bound_target_object_id,
+                        ).to_context()
+                    )
                 obs = Image.fromarray(event.frame).convert("RGB")
                 obs_path = frame_dir / f"ai2thor_obs_{step_id:02d}.png"
                 obs.save(obs_path)
@@ -319,7 +344,6 @@ class AI2ThorVisualSearchDemo:
                     task_plan=response_dict.get("task_plan"),
                     completion_status=response_dict.get("completion_status"),
                 )
-                grounded_target = self._ground_target_from_segmentation(event, instruction)
                 if grounded_target and visual_search_task:
                     if grounded_target["confidence"] >= self.config.stop_confidence_threshold:
                         confirmed_target_steps += 1
@@ -399,7 +423,7 @@ class AI2ThorVisualSearchDemo:
                 robot_before = self._robot_state(event.metadata)
                 agent_path.append(robot_before)
                 next_event = event
-                action_success = True
+                action_success = action_type != "ASK_CLARIFY"
                 execution_record: dict[str, Any] | None = None
                 if not done:
                     StreamEventEmitter.raise_if_cancelled(cancel_event)
@@ -438,6 +462,49 @@ class AI2ThorVisualSearchDemo:
                     action_success=action_success,
                     execution=execution_record,
                 )
+                post_grounded_target = (
+                    self._ground_target_from_segmentation(
+                        next_event,
+                        instruction,
+                    )
+                )
+                if post_grounded_target:
+                    bound_target_object_id = str(
+                        post_grounded_target["object_id"]
+                    )
+                post_environment_context = (
+                    self.interaction_resolver.build_context(
+                        next_event.metadata
+                    )
+                )
+                if (
+                    "navigate_to" in task_plan.task_types
+                    and bound_target_object_id
+                ):
+                    post_approach = self.approach_verifier.verify(
+                        controller,
+                        mode=self.agent_mode,
+                        metadata=next_event.metadata,
+                        object_id=bound_target_object_id,
+                    ).to_context()
+                    pre_approach = environment_context.get("approach") or {}
+                    if (
+                        action_type == "Crouch"
+                        and not post_approach.get("verified")
+                        and pre_approach.get("verified")
+                        and pre_approach.get("objectId")
+                        == bound_target_object_id
+                    ):
+                        post_approach = {
+                            **pre_approach,
+                            "verifiedAt": "pre_action",
+                            "verifiedStepId": step_id,
+                            "reason": (
+                                "Crouch executed from the verified target "
+                                "interaction pose"
+                            ),
+                        }
+                    post_environment_context["approach"] = post_approach
                 robot_after = self._robot_state(next_event.metadata)
                 committed = self.agent.commit_execution(
                     session_id,
@@ -447,12 +514,25 @@ class AI2ThorVisualSearchDemo:
                     robot_before=robot_before,
                     robot_after=robot_after,
                     environment={"backend": "ai2thor", "scene": self.scene},
+                    environment_context=post_environment_context,
                 )
                 response_dict.update(committed)
+                done = bool(response_dict["done"])
                 response_dict["execution"] = execution_record
                 visible_objects = self._visible_objects(next_event.metadata)
-                if grounded_target:
-                    visible_objects = sorted(set(visible_objects + [f"{grounded_target['object_type']} (segmented)"]))
+                display_grounded_target = (
+                    post_grounded_target or grounded_target
+                )
+                if display_grounded_target:
+                    visible_objects = sorted(
+                        set(
+                            visible_objects
+                            + [
+                                f"{display_grounded_target['object_type']} "
+                                "(segmented)"
+                            ]
+                        )
+                    )
                 topdown = self._render_unity_map_view(
                     next_event,
                     map_camera_id=map_camera_id,

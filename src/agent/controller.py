@@ -130,7 +130,15 @@ class EmbodiedSearchAgent:
             step_id=request.step_id,
         ) or execution_plan
         done = action.type in self.config.terminal_actions or action.type == "Done"
-        if action.type in {"STOP", "Done"} and not completion_status["complete"]:
+        premature_sit_action = (
+            task_plan.completion_mode == "approximate_sit"
+            and action.type == "Crouch"
+            and not completion_status.get("approach_verified")
+        )
+        if (
+            action.type in {"STOP", "Done"}
+            and not completion_status["complete"]
+        ) or premature_sit_action:
             if task_plan.is_visual_search:
                 action = self._rule_fallback_planner(confidence, analysis.target_visible, state)
                 skill_call = SkillCall(
@@ -153,7 +161,11 @@ class EmbodiedSearchAgent:
                     preconditions=[],
                     expected_observation=f"Execute {action.type} and verify simulator state",
                 )
-                fallback_reason = "premature_done_replanned"
+                fallback_reason = (
+                    "premature_crouch_replanned"
+                    if premature_sit_action
+                    else "premature_done_replanned"
+                )
             else:
                 action = Action(
                     "ASK_CLARIFY",
@@ -283,6 +295,7 @@ class EmbodiedSearchAgent:
         robot_before: dict[str, float] | None = None,
         robot_after: dict[str, float] | None = None,
         environment: dict[str, object] | None = None,
+        environment_context: dict[str, object] | None = None,
     ) -> dict[str, object]:
         state = self.memory.commit_execution(
             session_id,
@@ -297,6 +310,40 @@ class EmbodiedSearchAgent:
             robot_after=robot_after,
             environment=environment,
         )
+        task_plan_payload = response.get("task_plan") or {}
+        task_plan = self.task_semantics.analyze(
+            state.instruction,
+            mode=str(task_plan_payload.get("mode") or "default"),
+            legacy_actions=self.config.allowed_actions,
+        )
+        observation = response.get("observation") or {}
+        verification = self.task_verifier.verify(
+            task_plan,
+            steps=state.steps,
+            target_visible=bool(observation.get("target_visible")),
+            confidence=float(response.get("confidence", 0.0)),
+            stop_confidence_threshold=self.config.stop_confidence_threshold,
+            environment_context=environment_context,
+        ).to_dict()
+        action_type = str(
+            (response.get("action") or {}).get("type") or ""
+        )
+        done = bool(verification["complete"]) or action_type in {
+            "STOP",
+            "Done",
+            "ASK_CLARIFY",
+        }
+        state = self.memory.finalize_execution(
+            state,
+            step_id=(
+                int(step_id)
+                if step_id is not None
+                else int(state.steps[-1]["step_id"])
+            ),
+            completion_status=verification,
+            done=done,
+            environment_context=environment_context,
+        )
         return {
             "memory_summary": self.memory.summarize(state),
             "replay": state.recent_steps(self.config.history_window),
@@ -308,6 +355,8 @@ class EmbodiedSearchAgent:
                 if state.execution_plan is not None
                 else {}
             ),
+            "completion_status": verification,
+            "done": done,
         }
 
     def _validate_request(self, request: AgentRequest) -> None:

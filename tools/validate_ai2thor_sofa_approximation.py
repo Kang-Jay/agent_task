@@ -34,6 +34,15 @@ def _select_sofa(metadata: dict[str, Any]) -> dict[str, Any]:
     return sofas[0]
 
 
+def _select_standing_pose(poses: list[dict[str, Any]]) -> dict[str, Any]:
+    standing_poses = [
+        pose for pose in poses if pose.get("standing") is True
+    ]
+    if not standing_poses:
+        raise RuntimeError("No standing interactable pose is available")
+    return standing_poses[0]
+
+
 def _interactable_pose(controller: Any, object_id: str) -> dict[str, Any]:
     event = controller.step(
         action="GetInteractablePoses",
@@ -45,7 +54,7 @@ def _interactable_pose(controller: Any, object_id: str) -> dict[str, Any]:
     poses = event.metadata.get("actionReturn") or []
     if not poses:
         raise RuntimeError(f"No interactable pose for {object_id}")
-    return poses[0]
+    return _select_standing_pose(poses)
 
 
 def _teleport_to_pose(controller: Any, pose: dict[str, Any]) -> Any:
@@ -99,6 +108,10 @@ def run_validation(output_dir: Path) -> dict[str, Any]:
             controller,
             _interactable_pose(controller, sofa_id),
         )
+        if (before_crouch.metadata.get("agent") or {}).get("isStanding") is not True:
+            raise RuntimeError(
+                "Validation setup must start from agent.isStanding=true"
+            )
         _save_frame(before_crouch, output_dir / "00_approached_sofa.png")
 
         context_before = resolver.build_context(before_crouch.metadata)
@@ -161,6 +174,9 @@ def run_validation(output_dir: Path) -> dict[str, Any]:
                 "distanceBeforeCrouch": visible_sofa_before["distance"],
             },
             "crouch": {
+                "agentWasStanding": (
+                    before_crouch.metadata.get("agent") or {}
+                ).get("isStanding"),
                 "lastActionSuccess": bool(
                     crouch_event.metadata.get("lastActionSuccess")
                 ),

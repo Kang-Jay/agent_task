@@ -794,3 +794,34 @@ passed
 Local Windows AI2-THOR is version 2.7.4 and is not accepted as runtime
 evidence for this project. The next gate must run the tool and the full Agent
 episode on remote AI2-THOR 5.0.0.
+
+#### First Remote Phase 5 Attempt
+
+The first real-Unity run correctly failed instead of producing false
+success:
+
+```text
+Crouch lastActionSuccess=false
+errorMessage="Already crouching."
+TaskVerifier outcome=in_progress
+```
+
+Root cause:
+
+- `GetInteractablePoses` returned both crouched and standing candidates;
+- the validation tool selected the first candidate without checking its
+  `standing` field;
+- `TeleportFull` therefore initialized the agent with
+  `agent.isStanding=false`;
+- the subsequent native `Crouch` was correctly rejected by AI2-THOR.
+
+Correction:
+
+- validation setup now selects only a pose with `standing=true`;
+- the post-teleport state must explicitly report
+  `agent.isStanding=true`;
+- regression tests cover mixed standing/crouched candidates and reject a
+  crouched-only candidate list.
+
+No production task predicate, action parameter or completion threshold was
+changed to accommodate this failure.

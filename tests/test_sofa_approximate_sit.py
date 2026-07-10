@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from tools.validate_ai2thor_sofa_approximation import _select_sofa
+from tools.validate_ai2thor_sofa_approximation import (
+    _select_sofa,
+    _select_standing_pose,
+)
 
 
 class SofaApproximationValidationTests(unittest.TestCase):
@@ -21,6 +24,37 @@ class SofaApproximationValidationTests(unittest.TestCase):
     def test_select_sofa_rejects_scene_without_sofa(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "does not contain a Sofa"):
             _select_sofa({"objects": [{"objectType": "Chair"}]})
+
+    def test_select_standing_pose_skips_crouched_pose(self) -> None:
+        selected = _select_standing_pose(
+            [
+                {
+                    "x": 0.0,
+                    "y": 0.9,
+                    "z": 0.0,
+                    "rotation": 0.0,
+                    "horizon": 0.0,
+                    "standing": False,
+                },
+                {
+                    "x": 0.0,
+                    "y": 0.9,
+                    "z": 0.25,
+                    "rotation": 0.0,
+                    "horizon": 0.0,
+                    "standing": True,
+                },
+            ]
+        )
+        self.assertTrue(selected["standing"])
+        self.assertEqual(selected["z"], 0.25)
+
+    def test_select_standing_pose_rejects_crouched_only_candidates(self) -> None:
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "No standing interactable pose",
+        ):
+            _select_standing_pose([{"standing": False}])
 
 
 if __name__ == "__main__":

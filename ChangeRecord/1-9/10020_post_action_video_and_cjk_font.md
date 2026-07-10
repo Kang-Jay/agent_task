@@ -765,7 +765,7 @@ C:\Users\21147\AppData\Local\Temp\ai2thor_cjk_post_action_preview_unicode.png
 
 ## 12. 当前阶段判定
 
-本地阶段判定：
+最终阶段判定：
 
 ```text
 动作后帧契约：通过
@@ -776,8 +776,422 @@ CJK 字形验证：通过
 网页动作后 POV 契约：通过
 全量回归：通过
 配置一致性：通过
-远端真实 Unity：待执行
-真实视频逐帧验收：待执行
+远端真实 Unity：通过
+真实视频逐帧验收：通过
+远端网页服务：通过
+网页静态资源与视频 Range：通过
+真实浏览器点击与截图：外部浏览器实例不可用
 ```
 
-只有在远端真实 Unity、新视频和浏览器检查全部通过后，才能将本工作包标记为完整完成。
+本工作包的代码、远端 Unity、视频和 HTTP 服务门禁均已通过。
+
+真实浏览器点击和截图没有执行，原因是当前浏览器控制环境返回空浏览器列表。该限制不影响网页服务、页面内容、视频资源和 summary 的 HTTP 验收，但必须在具备浏览器实例的环境中补做交互检查。
+
+## 13. 远端同步与测试证据
+
+### 13.1 提交
+
+本轮功能提交：
+
+```text
+bf0d1c8b4021f61d85600c6483fd0984dedf14b7
+```
+
+提交说明：
+
+```text
+fix: align post-action demo rendering
+```
+
+精确提交文件：
+
+- `ChangeRecord/1-9/10020_post_action_video_and_cjk_font.md`
+- `src/simulation/ai2thor_adapter.py`
+- `src/simulation/room_simulator.py`
+- `src/ui/static/index.html`
+- `tests/test_ai2thor_post_action_rendering.py`
+- `tests/test_render_fonts.py`
+- `tests/test_ui_stream_contract.py`
+
+未提交视频、frame 目录、密钥、日志或临时文件。
+
+### 13.2 远端拉取
+
+3090GPU2 第一次执行 `git pull --ff-only` 时出现：
+
+```text
+Could not resolve host: github.com
+```
+
+该失败发生在网络 DNS 层，远端工作树未改变。
+
+随后有限次数重试成功：
+
+```text
+Updating 3656806..bf0d1c8
+Fast-forward
+```
+
+没有执行 merge、reset 或 stash pop。
+
+远端既有未跟踪验证目录保持不变。
+
+### 13.3 三端 SHA
+
+本地、GitHub `origin/main`、3090GPU2：
+
+```text
+bf0d1c8b4021f61d85600c6483fd0984dedf14b7
+```
+
+远端配置 blob：
+
+```text
+e9311e26ec93dab9b28941b611d1324bd3cabdf5
+```
+
+### 13.4 远端字体
+
+3090GPU2 实际选中：
+
+```text
+/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+```
+
+远端验证字符：
+
+- `中`
+- `文`
+- `沙`
+- `发`
+- `?`
+- `□`
+
+中文字符的字形摘要均不同，且不等于 `?` 或 `□`。
+
+远端不需要安装额外字体。
+
+### 13.5 远端测试
+
+```text
+Ran 207 tests in 16.486s
+OK (skipped=2)
+```
+
+跳过项仍然仅为显式实时模型测试开关。
+
+## 14. 真实 AI2-THOR 多模态 episode
+
+### 14.1 运行信息
+
+- 服务器：`3090GPU2`
+- 项目目录：`/home/scale/kangjay/kaohe`
+- Scene：`FloorPlan211`
+- AI2-THOR：`5.0.0`
+- Build：
+
+```text
+f0825767cd50d69f666c7f282e54abfe58f1e917
+```
+
+- 指令：
+
+```text
+找到房间里的沙发并坐下
+```
+
+- Session：
+
+```text
+plan2-sofa-agent-bf0d1c8-live
+```
+
+- Episode：
+
+```text
+sofa-bf0d1c8-post-action-1783675034
+```
+
+- 远端输出：
+
+```text
+docs/ai2thor_outputs/plan2-sofa-agent-bf0d1c8-live/sofa-bf0d1c8-post-action-1783675034
+```
+
+### 14.2 动作序列
+
+```text
+TURN_LEFT
+MOVE_FORWARD
+MOVE_FORWARD
+TURN_RIGHT
+MOVE_FORWARD
+MOVE_FORWARD
+Crouch
+```
+
+前 6 步：
+
+```text
+planner_source = simulator_oracle
+```
+
+最终 `Crouch`：
+
+```text
+planner_source = model_planner
+provider = kimi
+model = kimi-k2.6
+vision_input_used = true
+```
+
+模型摘要：
+
+```text
+The agent has reached an AI2-THOR-verified interactable pose for the target sofa,
+so the next step is to execute the Crouch action as the approximate sit maneuver.
+```
+
+### 14.3 严格完成证据
+
+所有 7 个动作：
+
+- Unity 执行成功。
+- 后置条件通过。
+- 不存在 `TeleportFull`。
+
+最终目标：
+
+```text
+Sofa|+01.56|00.00|+00.42
+```
+
+最终状态：
+
+```text
+completion_status.complete = true
+completion_status.outcome = approximate_success
+completion_status.approach_verified = true
+completion_status.agent_is_standing = false
+execution.action = Crouch
+execution.success = true
+postcondition.passed = true
+postcondition.reason = agent isStanding=False
+```
+
+最终可见物体包括：
+
+```text
+Sofa
+Sofa (segmented)
+```
+
+最终动作后观察：
+
+```text
+frames/ai2thor_obs_after_06.png
+```
+
+## 15. 新视频验收
+
+### 15.1 本地视频
+
+```text
+D:\cache\SummerCap\kaohe\zju\docs\browser_recordings\plan2_sofa_agent_bf0d1c8_post_action.mp4
+```
+
+该文件被 `.gitignore` 的 `*.mp4` 规则忽略。
+
+视频 SHA-256：
+
+```text
+3ca7a283b3338d367a087f9003f426ce0cb46209b434fd9afc605e8eb5bf3bee
+```
+
+### 15.2 编码
+
+远端 FFprobe：
+
+```text
+codec = h264
+profile = High
+pixel_format = yuv420p
+resolution = 1600x900
+fps = 2/1
+decoded_frames = 14
+steps = 7
+```
+
+本机没有独立 `ffprobe` 命令，因此使用生成视频的 3090GPU2 上 `/usr/bin/ffprobe` 读取同一远端文件。
+
+### 15.3 帧顺序
+
+每个步骤在视频中保持 2 帧。
+
+对全部 14 个解码帧与 7 张源合成 PNG 计算最近匹配，结果：
+
+```text
+0,0,1,1,2,2,3,3,4,4,5,5,6,6
+```
+
+这证明：
+
+- 视频没有丢步。
+- 视频没有乱序。
+- 最后两帧均来自步骤 6 `Crouch`。
+
+首次审计曾要求同一步的两个 H.264 帧像素 MAE 小于 1.0。
+
+第一对帧实际 MAE 为：
+
+```text
+1.2448053240740742
+```
+
+H.264 I/P/B 帧允许同一源画面产生轻微编码差异，因此该阈值不是正确的时间顺序判据。
+
+最终改用“每个解码帧必须最近匹配到预期源步骤”的语义检查，不通过放宽业务完成阈值规避问题。
+
+### 15.4 最终 Crouch 对齐
+
+最终合成帧主 POV 与动作后 Crouch 图片的 MAE：
+
+```text
+2.0301559068950374
+```
+
+与动作前模型输入图片的 MAE：
+
+```text
+37.190741472697994
+```
+
+因此最终视频明显匹配动作后 Crouch 观察，而不是动作前观察。
+
+人工检查结果：
+
+- 最终 Crouch 后相机高度明显降低。
+- 沙发仍在视野中。
+- 中文指令正常。
+- 中文 Thought 正常。
+- 地图和 POV 同步。
+- TURN_LEFT 视觉方向正确。
+- TURN_RIGHT 视觉方向正确。
+- 最后两帧对应 Crouch。
+- 无文字方框。
+- 无主要文本重叠。
+
+临时审计图：
+
+```text
+C:\Users\21147\AppData\Local\Temp\plan2_sofa_bf0d1c8_audit\contact_sheet.png
+C:\Users\21147\AppData\Local\Temp\plan2_sofa_bf0d1c8_audit\final_crouch_alignment.png
+```
+
+临时审计文件不提交仓库。
+
+## 16. 网页服务验收
+
+### 16.1 运行状态
+
+远端服务进程：
+
+```text
+3468035 .mamba-env/bin/python -m src.ui.app
+```
+
+远端监听：
+
+```text
+127.0.0.1:8000
+```
+
+本地 SSH 隧道：
+
+```text
+127.0.0.1:18000 -> 3090GPU2:127.0.0.1:8000
+```
+
+用户入口：
+
+```text
+http://127.0.0.1:18000
+```
+
+### 16.2 HTTP 检查
+
+首页：
+
+```text
+GET /
+200
+```
+
+部署页面包含：
+
+```text
+payload.observation_phase === "after_action"
+asset(payload.observation_path)
+observing after action
+```
+
+仿真状态：
+
+```text
+GET /api/simulator/status
+200
+AI2-THOR 5.0.0
+catalog_match.matched = true
+```
+
+视频 Range：
+
+```text
+GET /docs/.../ai2thor_visual_search_demo.mp4
+Range: bytes=0-1023
+206 Partial Content
+Content-Type: video/mp4
+Content-Range: bytes 0-1023/482871
+```
+
+Summary：
+
+```text
+GET /docs/.../ai2thor_demo_summary.json
+200
+steps = 7
+final_action = Crouch
+final_outcome = approximate_success
+final_observation = ai2thor_obs_after_06.png
+```
+
+首次 HTTP 检查错误地使用 `/assets/docs/...`，返回 404。
+
+检查 FastAPI mount 和前端 `asset()` 后，确认正确路径为 `/docs/...`，随后视频和 summary 均通过。
+
+### 16.3 浏览器限制
+
+浏览器控制环境返回：
+
+```text
+No browser is available
+available browsers = []
+```
+
+因此本轮无法执行：
+
+- 实际点击“运行演示”。
+- 浏览器内截图。
+- 浏览器播放器拖动和播放检查。
+
+没有改用未授权的其他浏览器后端规避该限制。
+
+已经完成的替代证据：
+
+- 首页真实 HTTP 200。
+- 部署 HTML 包含新逻辑。
+- 状态接口真实 HTTP 200。
+- 视频真实 206 Range。
+- Summary 真实 HTTP 200。
+- 视频本地完整解码。
+- 逐帧和人工画面检查。

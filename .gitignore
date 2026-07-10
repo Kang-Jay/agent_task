@@ -44,3 +44,24 @@ docs/browser_recordings/frames/
 
 # Large downloaded reference PDFs; keep metadata/notes in git instead
 research/papers/*.pdf
+
+# Full external source checkouts used only as local research references
+research/codebases/*/source/
+research/codebases/**/runtime_*/
+research/claudecode/
+research/papers/
+
+# Persistent runtime memory databases
+datasets/**/memory/*.sqlite3*
+
+# Runtime web/demo traces; curated dataset traces already tracked remain visible
+datasets/embodied_search_v1/trajectories/*.json
+
+# Local virtual environments and process state
+.venv/
+.mamba-env/
+*.pid
+*.nohup
+
+# One-off simulator probe images
+temp_*.png

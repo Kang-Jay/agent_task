@@ -72,6 +72,7 @@
     "success_stop_required": true,
     "illegal_action_is_failure": true,
     "max_episode_steps": 20,
-    "min_success_confidence": 0.78
+    "min_success_confidence": 0.78,
+    "min_success_iou": 0.3
   }
 }

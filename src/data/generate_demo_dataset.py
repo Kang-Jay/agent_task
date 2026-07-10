@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from src.task.config import load_config
+from src.task.config import AgentConfig, load_config
 
 
 OBJECTS = {
@@ -46,8 +46,8 @@ def _make_image(path: Path, target_name: str, bbox: list[int], distractors: list
     image.save(path)
 
 
-def build_dataset() -> list[dict[str, object]]:
-    config = load_config()
+def build_dataset(config: AgentConfig | None = None) -> list[dict[str, object]]:
+    config = config or load_config()
     config.image_dir.mkdir(parents=True, exist_ok=True)
     config.annotation_file.parent.mkdir(parents=True, exist_ok=True)
     config.trajectory_dir.mkdir(parents=True, exist_ok=True)
@@ -111,4 +111,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

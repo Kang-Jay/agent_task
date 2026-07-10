@@ -2,21 +2,29 @@ from __future__ import annotations
 
 import json
 import math
+import re
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import cv2
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from src.agent.controller import EmbodiedSearchAgent
+from src.simulation.video_encoding import write_browser_compatible_mp4
 from src.task.config import ROOT, load_config
 from src.types.schema import AgentRequest
 from src.vision.image_io import image_to_data_url
 
 
 OUTPUT_DIR = ROOT / "docs" / "demo_outputs"
-FRAME_DIR = OUTPUT_DIR / "frames"
+FONT_CANDIDATES = (
+    Path("C:/Windows/Fonts/msyh.ttc"),
+    Path("C:/Windows/Fonts/simhei.ttf"),
+    Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+    Path("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"),
+    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+)
 
 
 @dataclass
@@ -51,6 +59,18 @@ class DemoStep:
     scene: str = "FloorPlan211-compatible"
     structured_thought: dict[str, str] | None = None
     target_binding: dict[str, Any] | None = None
+    skill_call: dict[str, Any] | None = None
+    planner_source: str = "rule_fallback"
+    memory_summary: str = ""
+    recalled_memories: list[dict[str, Any]] | None = None
+    search_map: dict[str, Any] | None = None
+    model_info: dict[str, Any] | None = None
+    fallback_reason: str | None = None
+    task_plan: dict[str, Any] | None = None
+    completion_status: dict[str, Any] | None = None
+    execution: dict[str, Any] | None = None
+    interaction_binding: dict[str, Any] | None = None
+    map_view_source: str = "procedural_2d"
 
 
 @dataclass
@@ -58,19 +78,32 @@ class DemoResult:
     steps: list[DemoStep] = field(default_factory=list)
     video_path: str = ""
     summary_path: str = ""
+    episode_id: str = ""
+    output_dir: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "steps": [step.__dict__ for step in self.steps],
             "video_path": self.video_path,
             "summary_path": self.summary_path,
+            "episode_id": self.episode_id,
+            "output_dir": self.output_dir,
         }
 
 
 class RoomSimulator:
-    def __init__(self):
+    def __init__(
+        self,
+        agent: EmbodiedSearchAgent | None = None,
+        output_dir: Path | str | None = None,
+    ):
         self.config = load_config()
-        self.agent = EmbodiedSearchAgent(self.config)
+        self.agent = agent or EmbodiedSearchAgent(self.config)
+        self.output_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR
+        self.title_font = self._load_font(22)
+        self.label_font = self._load_font(18)
+        self.body_font = self._load_font(17)
+        self.small_font = self._load_font(15)
         self.objects = [
             SceneObject("red cup", (210, 55, 55), (3.85, 1.45), 0.26),
             SceneObject("blue book", (55, 95, 205), (1.55, 1.15), 0.28),
@@ -81,67 +114,131 @@ class RoomSimulator:
         self.width = 5.4
         self.height = 5.0
 
-    def run_demo(self, instruction: str = "Find the red cup on the table", max_steps: int = 8) -> DemoResult:
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        FRAME_DIR.mkdir(parents=True, exist_ok=True)
-        for stale in FRAME_DIR.glob("demo_*.png"):
-            stale.unlink()
+    def run_demo(
+        self,
+        instruction: str = "Find the red cup on the table",
+        max_steps: int = 8,
+        clicked_point: list[int] | None = None,
+        session_id: str = "recorded-demo",
+    ) -> DemoResult:
+        safe_session_id = re.sub(r"[^A-Za-z0-9._-]", "_", session_id)
+        episode_id = uuid.uuid4().hex
+        run_output_dir = self.output_dir / safe_session_id / episode_id
+        frame_dir = run_output_dir / "frames"
+        frame_dir.mkdir(parents=True, exist_ok=False)
         state = RobotState()
-        session_id = "recorded-demo"
         self.agent.reset(session_id)
-        result = DemoResult()
+        result = DemoResult(
+            episode_id=episode_id,
+            output_dir=self._serializable_path(run_output_dir),
+        )
         for step_id in range(max_steps):
             obs = self.render_first_person(state)
-            obs_path = FRAME_DIR / f"demo_obs_{step_id:02d}.png"
+            obs_path = frame_dir / f"demo_obs_{step_id:02d}.png"
             obs.save(obs_path)
-            response = self.agent.step(
-                AgentRequest(
-                    session_id=session_id,
-                    instruction=instruction,
-                    observation_image=image_to_data_url(obs),
-                    step_id=step_id,
-                )
+
+            # 在第一步传递 clicked_point
+            agent_request = AgentRequest(
+                session_id=session_id,
+                instruction=instruction,
+                observation_image=image_to_data_url(obs),
+                step_id=step_id,
+                clicked_point=clicked_point if step_id == 0 else None,
             )
+
+            response = self.agent.step(agent_request)
             visible_names = [item.name for item, _, _ in self.visible_objects(state)]
             response_dict = self.demo_response_dict(response.to_dict(), visible_names)
-            action_type = self.scripted_action(state, response_dict["action"]["type"], response_dict["confidence"], step_id)
+            planned_action = response_dict["action"]["type"]
+            action_type = self.scripted_action(
+                state,
+                planned_action,
+                response_dict["confidence"],
+                step_id,
+            )
             done = action_type == "STOP"
             topdown = self.render_topdown(state, response_dict["observation"].get("best_candidate"))
-            topdown_path = FRAME_DIR / f"demo_topdown_{step_id:02d}.png"
+            topdown_path = frame_dir / f"demo_topdown_{step_id:02d}.png"
             topdown.save(topdown_path)
             response_dict["action"]["type"] = action_type
             response_dict["done"] = done
+            if action_type != planned_action:
+                response_dict["planner_source"] = "simulator_oracle"
+                response_dict["skill_call"] = {
+                    "name": action_type,
+                    "args": response_dict["action"].get("args", {}),
+                    "preconditions": [],
+                    "expected_observation": f"Execute {action_type}",
+                }
+            robot_before = {"x": state.x, "y": state.y, "heading": state.heading}
+            if not done:
+                self.apply_action(state, action_type)
+            robot_after = {"x": state.x, "y": state.y, "heading": state.heading}
+            commit_execution = getattr(self.agent, "commit_execution", None)
+            if callable(commit_execution):
+                committed = commit_execution(
+                    session_id,
+                    response_dict,
+                    step_id=step_id,
+                    action_success=True,
+                    robot_before=robot_before,
+                    robot_after=robot_after,
+                    environment={
+                        "backend": "local_ppt_style",
+                        "scene": "FloorPlan211-compatible",
+                    },
+                )
+                if isinstance(committed, dict):
+                    response_dict.update(committed)
             frame = self.compose_frame(obs, topdown, response_dict, instruction, step_id)
-            frame_path = FRAME_DIR / f"demo_frame_{step_id:02d}.png"
+            frame_path = frame_dir / f"demo_frame_{step_id:02d}.png"
             frame.save(frame_path)
             result.steps.append(
                 DemoStep(
-                    frame_path=str(frame_path.relative_to(ROOT)),
-                    observation_path=str(obs_path.relative_to(ROOT)),
-                    topdown_path=str(topdown_path.relative_to(ROOT)),
+                    frame_path=self._serializable_path(frame_path),
+                    observation_path=self._serializable_path(obs_path),
+                    topdown_path=self._serializable_path(topdown_path),
                     thought=response_dict["thought"],
                     action=action_type,
                     confidence=response_dict["confidence"],
                     done=done,
-                    robot={"x": state.x, "y": state.y, "heading": state.heading},
+                    robot=robot_before,
                     best_candidate=response_dict["observation"].get("best_candidate"),
                     visible_objects=visible_names,
                     backend="local_ppt_style",
                     scene="FloorPlan211-compatible",
                     structured_thought=response_dict.get("structured_thought"),
                     target_binding=response_dict.get("target_binding"),
+                    skill_call=response_dict.get("skill_call"),
+                    planner_source=response_dict.get("planner_source", "rule_fallback"),
+                    memory_summary=response_dict.get("memory_summary", ""),
+                    recalled_memories=response_dict.get("recalled_memories", []),
+                    search_map=response_dict.get("search_map"),
+                    model_info=response_dict.get("model_info"),
+                    fallback_reason=response_dict.get("fallback_reason"),
                 )
             )
             if done:
                 break
-            self.apply_action(state, action_type)
-        video_path = OUTPUT_DIR / "embodied_visual_search_demo.mp4"
-        self.write_video([ROOT / step.frame_path for step in result.steps], video_path)
-        summary_path = OUTPUT_DIR / "demo_summary.json"
-        result.video_path = str(video_path.relative_to(ROOT))
-        result.summary_path = str(summary_path.relative_to(ROOT))
+        video_path = run_output_dir / "embodied_visual_search_demo.mp4"
+        self.write_video([self._resolved_path(step.frame_path) for step in result.steps], video_path)
+        summary_path = run_output_dir / "demo_summary.json"
+        result.video_path = self._serializable_path(video_path)
+        result.summary_path = self._serializable_path(summary_path)
         summary_path.write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
         return result
+
+    @staticmethod
+    def _serializable_path(path: Path) -> str:
+        try:
+            return str(path.relative_to(ROOT))
+        except ValueError:
+            return str(path)
+
+    @staticmethod
+    def _resolved_path(path: str) -> Path:
+        candidate = Path(path)
+        return candidate if candidate.is_absolute() else ROOT / candidate
 
     def render_first_person(self, state: RobotState) -> Image.Image:
         image = Image.new("RGB", (640, 448), (199, 209, 215))
@@ -266,40 +363,135 @@ class RoomSimulator:
     def compose_frame(self, obs: Image.Image, topdown: Image.Image, response: dict[str, Any], instruction: str, step_id: int) -> Image.Image:
         canvas = Image.new("RGB", (1600, 900), (8, 13, 23))
         draw = ImageDraw.Draw(canvas)
-        draw.text((34, 28), "Embodied Visual Search Agent | FloorPlan211-compatible Demo", fill=(245, 248, 252))
-        draw.text((34, 62), f"Instruction: {instruction}", fill=(180, 195, 210))
-        draw.text((34, 92), "Robot egocentric camera", fill=(49, 217, 198))
-        draw.text((992, 92), "Global environment map", fill=(88, 166, 255))
+        draw.text(
+            (34, 24),
+            "Embodied Visual Search Agent | FloorPlan211-compatible Demo",
+            fill=(245, 248, 252),
+            font=self.title_font,
+        )
+        draw.text(
+            (34, 58),
+            f"Instruction: {instruction}",
+            fill=(180, 195, 210),
+            font=self.body_font,
+        )
+        draw.text((34, 90), "Robot egocentric camera", fill=(49, 217, 198), font=self.body_font)
+        draw.text((992, 90), "Global environment map", fill=(88, 166, 255), font=self.body_font)
         canvas.paste(obs.resize((900, 630)), (34, 116))
         canvas.paste(topdown.resize((420, 420)), (992, 116))
         draw.rectangle([34, 116, 934, 746], outline=(49, 217, 198), width=3)
         draw.rectangle([992, 116, 1412, 536], outline=(88, 166, 255), width=3)
         panel_x = 992
-        panel_y = 570
-        draw.rounded_rectangle([panel_x, panel_y, 1560, 850], radius=8, fill=(242, 246, 250))
-        draw.text((panel_x + 20, panel_y + 18), f"Step {step_id}", fill=(15, 23, 42))
-        draw.text((panel_x + 20, panel_y + 52), f"Action: {response['action']['type']}", fill=(0, 126, 120))
-        draw.text((panel_x + 20, panel_y + 86), f"Confidence: {response['confidence']:.3f}", fill=(180, 35, 24))
-        draw.text((panel_x + 20, panel_y + 122), "Thought:", fill=(71, 84, 103))
-        self._wrapped_text(draw, response["thought"], panel_x + 20, panel_y + 150, 74, fill=(15, 23, 42))
-        draw.text((40, 790), "Retrieved hints:", fill=(148, 163, 184))
+        panel_y = 550
+        draw.rounded_rectangle([panel_x, panel_y, 1560, 884], radius=8, fill=(242, 246, 250))
+        draw.text((panel_x + 20, panel_y + 18), f"Step {step_id}", fill=(15, 23, 42), font=self.label_font)
+        draw.text(
+            (panel_x + 20, panel_y + 52),
+            f"Action: {response['action']['type']}",
+            fill=(0, 126, 120),
+            font=self.label_font,
+        )
+        draw.text(
+            (panel_x + 20, panel_y + 84),
+            f"Confidence: {response['confidence']:.3f}",
+            fill=(180, 35, 24),
+            font=self.label_font,
+        )
+        draw.text((panel_x + 20, panel_y + 120), "Thought", fill=(71, 84, 103), font=self.label_font)
+        self._wrapped_text(
+            draw,
+            response["thought"],
+            panel_x + 20,
+            panel_y + 150,
+            max_width=528,
+            fill=(15, 23, 42),
+            font=self.body_font,
+            line_height=25,
+            max_lines=4,
+        )
+        recalled = response.get("recalled_memories") or []
+        recalled_text = (
+            recalled[0].get("lesson", "Executed episode recalled.")
+            if recalled
+            else "No matching executed episode was recalled."
+        )
+        draw.text((panel_x + 20, panel_y + 252), "Recalled episode", fill=(71, 84, 103), font=self.label_font)
+        self._wrapped_text(
+            draw,
+            recalled_text,
+            panel_x + 20,
+            panel_y + 280,
+            max_width=528,
+            fill=(15, 23, 42),
+            font=self.small_font,
+            line_height=21,
+            max_lines=2,
+        )
+        draw.text((40, 778), "Retrieved task hints", fill=(148, 163, 184), font=self.label_font)
         hints = "; ".join(response.get("retrieved_hints", [])) or "None"
-        self._wrapped_text(draw, hints, 40, 820, 118, fill=(226, 232, 240))
+        self._wrapped_text(
+            draw,
+            hints,
+            40,
+            810,
+            max_width=900,
+            fill=(226, 232, 240),
+            font=self.small_font,
+            line_height=22,
+            max_lines=3,
+        )
         return canvas
 
-    def _wrapped_text(self, draw: ImageDraw.ImageDraw, text: str, x: int, y: int, width: int, fill: tuple[int, int, int]) -> None:
-        words = text.split()
-        line = ""
-        for word in words:
-            probe = f"{line} {word}".strip()
-            if len(probe) > width:
-                draw.text((x, y), line, fill=fill)
-                y += 22
-                line = word
+    def _wrapped_text(
+        self,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        x: int,
+        y: int,
+        *,
+        max_width: int,
+        fill: tuple[int, int, int],
+        font: ImageFont.ImageFont,
+        line_height: int,
+        max_lines: int,
+    ) -> None:
+        lines: list[str] = []
+        current = ""
+        units = re.findall(r"[A-Za-z0-9_./:-]+|\s+|.", str(text), flags=re.DOTALL)
+        for unit in units:
+            if unit == "\n":
+                lines.append(current.rstrip())
+                current = ""
+                continue
+            if unit.isspace():
+                unit = " "
+            candidate = current + unit
+            left, _, right, _ = draw.textbbox((0, 0), candidate, font=font)
+            if current and right - left > max_width:
+                lines.append(current.rstrip())
+                current = unit.lstrip()
             else:
-                line = probe
-        if line:
-            draw.text((x, y), line, fill=fill)
+                current = candidate
+        if current:
+            lines.append(current.rstrip())
+
+        visible_lines = lines[:max_lines]
+        if len(lines) > max_lines and visible_lines:
+            visible_lines[-1] = visible_lines[-1].rstrip(" .") + "..."
+        for line in visible_lines:
+            draw.text((x, y), line, fill=fill, font=font)
+            y += line_height
+
+    @staticmethod
+    def _load_font(size: int) -> ImageFont.ImageFont:
+        for font_path in FONT_CANDIDATES:
+            if not font_path.exists():
+                continue
+            try:
+                return ImageFont.truetype(str(font_path), size=size)
+            except OSError:
+                continue
+        return ImageFont.load_default()
 
     def apply_action(self, state: RobotState, action: str) -> None:
         if action == "TURN_RIGHT":
@@ -315,16 +507,12 @@ class RoomSimulator:
         state.step_id += 1
 
     def write_video(self, frames: list[Path], path: Path) -> None:
-        if not frames:
-            return
-        first = cv2.imread(str(frames[0]))
-        height, width = first.shape[:2]
-        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 2.0, (width, height))
-        for frame_path in frames:
-            frame = cv2.imread(str(frame_path))
-            for _ in range(2):
-                writer.write(frame)
-        writer.release()
+        write_browser_compatible_mp4(
+            frames,
+            path,
+            fps=2.0,
+            hold_frames=2,
+        )
 
 
 def main() -> None:

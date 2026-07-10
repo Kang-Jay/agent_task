@@ -1,0 +1,116 @@
+{
+  "status": "passed",
+  "scene": "FloorPlan1",
+  "runtime_configuration": {
+    "width": 960,
+    "height": 540,
+    "rotateStepDegrees": 30.0,
+    "snapToGrid": false,
+    "renderInstanceSegmentation": true
+  },
+  "dependency": "Egg starts inside a closed Fridge",
+  "chain": [
+    "OpenObject",
+    "PickupObject",
+    "PutObject"
+  ],
+  "setup_actions": [
+    "GetInteractablePoses",
+    "TeleportFull"
+  ],
+  "all_interaction_force_action_false": true,
+  "initial_state": {
+    "fridgeIsOpen": false,
+    "eggParentReceptacles": [
+      "Fridge|-02.10|+00.00|+01.07"
+    ]
+  },
+  "final_state": {
+    "eggParentReceptacles": [
+      "Bowl|+00.27|+01.10|-00.75",
+      "CounterTop|-00.08|+01.15|00.00"
+    ],
+    "bowlReceptacleObjectIds": [
+      "Egg|-02.04|+00.81|+01.24"
+    ],
+    "inventoryObjects": []
+  },
+  "trace": [
+    {
+      "action": "OpenObject",
+      "args": {
+        "objectId": "Fridge|-02.10|+00.00|+01.07"
+      },
+      "lastActionSuccess": true,
+      "errorMessage": "",
+      "postcondition": {
+        "checked": true,
+        "passed": true,
+        "action": "OpenObject",
+        "reason": "isOpen=True",
+        "evidence": {
+          "objectId": "Fridge|-02.10|+00.00|+01.07",
+          "field": "isOpen",
+          "expected": true,
+          "actual": true
+        }
+      },
+      "frame": "docs/ai2thor_outputs/interaction_chain_validation/01_open_fridge.png",
+      "forceAction": false
+    },
+    {
+      "action": "PickupObject",
+      "args": {
+        "objectId": "Egg|-02.04|+00.81|+01.24"
+      },
+      "lastActionSuccess": true,
+      "errorMessage": "",
+      "postcondition": {
+        "checked": true,
+        "passed": true,
+        "action": "PickupObject",
+        "reason": "target object entered inventory",
+        "evidence": {
+          "objectId": "Egg|-02.04|+00.81|+01.24",
+          "inventoryObjectIds": [
+            "Egg|-02.04|+00.81|+01.24"
+          ]
+        }
+      },
+      "frame": "docs/ai2thor_outputs/interaction_chain_validation/02_pickup_egg.png",
+      "forceAction": false
+    },
+    {
+      "action": "PutObject",
+      "args": {
+        "objectId": "Bowl|+00.27|+01.10|-00.75"
+      },
+      "lastActionSuccess": true,
+      "errorMessage": "",
+      "postcondition": {
+        "checked": true,
+        "passed": true,
+        "action": "PutObject",
+        "reason": "released object entered the requested receptacle",
+        "evidence": {
+          "receptacleObjectId": "Bowl|+00.27|+01.10|-00.75",
+          "beforeInventoryObjectIds": [
+            "Egg|-02.04|+00.81|+01.24"
+          ],
+          "afterInventoryObjectIds": [],
+          "releasedObjectIds": [
+            "Egg|-02.04|+00.81|+01.24"
+          ],
+          "placedObjectIds": [
+            "Egg|-02.04|+00.81|+01.24"
+          ],
+          "receptacleObjectIds": [
+            "Egg|-02.04|+00.81|+01.24"
+          ]
+        }
+      },
+      "frame": "docs/ai2thor_outputs/interaction_chain_validation/03_put_egg_in_bowl.png",
+      "forceAction": false
+    }
+  ]
+}

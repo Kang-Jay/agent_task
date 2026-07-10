@@ -5,6 +5,8 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
+from src.simulation.video_encoding import write_browser_compatible_mp4
+
 ROOT = Path(r'D:/cache/SummerCap/kaohe/zju')
 SUMMARY_PATH = ROOT / 'docs/ai2thor_outputs/ai2thor_demo_summary.json'
 OUT_DIR = ROOT / 'docs/cinematic_demo'
@@ -294,13 +296,7 @@ for i, frame in enumerate(frames):
     frame.save(p, quality=95)
     paths.append(p)
 
-writer = cv2.VideoWriter(str(OUT_VIDEO), cv2.VideoWriter_fourcc(*'mp4v'), FPS, (W, H))
-for p in paths:
-    img = cv2.imread(str(p))
-    if img is None:
-        raise RuntimeError(f'Failed to read frame {p}')
-    writer.write(img)
-writer.release()
+encoding = write_browser_compatible_mp4(paths, OUT_VIDEO, fps=FPS)
 
 cap = cv2.VideoCapture(str(OUT_VIDEO))
 verification = {
@@ -312,6 +308,8 @@ verification = {
     'width': int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
     'height': int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
     'duration_seconds': round(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) / FPS, 2),
+    'codec': encoding['codec'],
+    'pixel_format': encoding['pixel_format'],
     'source_steps': len(steps),
     'all_steps_ai2thor': all(s.get('backend') == 'ai2thor' for s in steps),
     'final_action': steps[-1].get('action'),

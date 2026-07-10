@@ -6,7 +6,7 @@
       "topdown_path": "docs\\demo_outputs\\frames\\demo_topdown_00.png",
       "thought": "The target is not visible yet. Current view contains no reliable object; the agent keeps rotating to scan the unfamiliar room before confirming the red cup.",
       "action": "TURN_RIGHT",
-      "confidence": 0.31,
+      "confidence": 0.276,
       "done": false,
       "robot": {
         "x": 1.2,
@@ -16,7 +16,289 @@
       "best_candidate": null,
       "visible_objects": [],
       "backend": "local_ppt_style",
-      "scene": "FloorPlan211-compatible"
+      "scene": "FloorPlan211-compatible",
+      "structured_thought": {
+        "observation": "当前画面middle center有一个gray的区域，可能是目标物体。置信度：0.28",
+        "reasoning": "当前区域置信度较低 (0.28)，建议继续探索其他区域。 记忆提示：cups are often on tables, counters, or near sinks",
+        "action": "向右转",
+        "confidence": "0.276"
+      },
+      "target_binding": {
+        "language": true,
+        "clicked_point": null,
+        "target_crop": false,
+        "mode": "language_only"
+      },
+      "skill_call": {
+        "name": "TURN_RIGHT",
+        "args": {},
+        "preconditions": [],
+        "expected_observation": "Execute TURN_RIGHT"
+      },
+      "planner_source": "model_planner",
+      "memory_summary": "1 steps recorded. Last action=TURN_RIGHT; explored regions=middle center:1; negative memories=1; recalled episodes=3.",
+      "recalled_memories": [
+        {
+          "id": 9,
+          "namespace": "visual_search",
+          "session_id": "final-polished-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "STOP",
+          "action_success": true,
+          "confidence": 0.9,
+          "region": "middle right",
+          "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "simulator_oracle",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute STOP",
+              "name": "STOP",
+              "preconditions": []
+            },
+            "step_id": 3
+          },
+          "created_at": "2026-07-09T22:14:55.792023+00:00",
+          "similarity": 1.0
+        },
+        {
+          "id": 5,
+          "namespace": "visual_search",
+          "session_id": "final-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "STOP",
+          "action_success": true,
+          "confidence": 0.9,
+          "region": "middle right",
+          "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "simulator_oracle",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute STOP",
+              "name": "STOP",
+              "preconditions": []
+            },
+            "step_id": 3
+          },
+          "created_at": "2026-07-09T22:12:21.613018+00:00",
+          "similarity": 1.0
+        },
+        {
+          "id": 8,
+          "namespace": "visual_search",
+          "session_id": "final-polished-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "TURN_RIGHT",
+          "action_success": true,
+          "confidence": 0.276,
+          "region": "middle center",
+          "lesson": "TURN_RIGHT executed successfully while searching middle center with confidence 0.276; compare the next observation before selecting another action.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "model_planner",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -108.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute MOVE_FORWARD",
+              "name": "MOVE_FORWARD",
+              "preconditions": []
+            },
+            "step_id": 2
+          },
+          "created_at": "2026-07-09T22:14:53.915310+00:00",
+          "similarity": 1.0
+        }
+      ],
+      "search_map": {
+        "visited_counts": {
+          "upper left": 0,
+          "upper center": 0,
+          "upper right": 0,
+          "middle left": 0,
+          "middle center": 1,
+          "middle right": 0,
+          "lower left": 0,
+          "lower center": 0,
+          "lower right": 0
+        },
+        "unexplored_regions": [
+          "upper left",
+          "upper center",
+          "upper right",
+          "middle left",
+          "middle right",
+          "lower left",
+          "lower center",
+          "lower right"
+        ],
+        "confidence_by_region": {
+          "middle center": 0.276
+        },
+        "negative_memory": [
+          "Searched middle center but confidence stayed low."
+        ],
+        "recalled_memories": [
+          {
+            "id": 9,
+            "namespace": "visual_search",
+            "session_id": "final-polished-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "STOP",
+            "action_success": true,
+            "confidence": 0.9,
+            "region": "middle right",
+            "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "simulator_oracle",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute STOP",
+                "name": "STOP",
+                "preconditions": []
+              },
+              "step_id": 3
+            },
+            "created_at": "2026-07-09T22:14:55.792023+00:00",
+            "similarity": 1.0
+          },
+          {
+            "id": 5,
+            "namespace": "visual_search",
+            "session_id": "final-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "STOP",
+            "action_success": true,
+            "confidence": 0.9,
+            "region": "middle right",
+            "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "simulator_oracle",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute STOP",
+                "name": "STOP",
+                "preconditions": []
+              },
+              "step_id": 3
+            },
+            "created_at": "2026-07-09T22:12:21.613018+00:00",
+            "similarity": 1.0
+          },
+          {
+            "id": 8,
+            "namespace": "visual_search",
+            "session_id": "final-polished-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "TURN_RIGHT",
+            "action_success": true,
+            "confidence": 0.276,
+            "region": "middle center",
+            "lesson": "TURN_RIGHT executed successfully while searching middle center with confidence 0.276; compare the next observation before selecting another action.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "model_planner",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -108.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute MOVE_FORWARD",
+                "name": "MOVE_FORWARD",
+                "preconditions": []
+              },
+              "step_id": 2
+            },
+            "created_at": "2026-07-09T22:14:53.915310+00:00",
+            "similarity": 1.0
+          }
+        ]
+      },
+      "model_info": {
+        "status": "ok",
+        "provider": "kimi",
+        "model": "moonshot-v1-8k-vision-preview",
+        "vision_input_used": true
+      },
+      "fallback_reason": null
     },
     {
       "frame_path": "docs\\demo_outputs\\frames\\demo_frame_01.png",
@@ -24,7 +306,7 @@
       "topdown_path": "docs\\demo_outputs\\frames\\demo_topdown_01.png",
       "thought": "The target is not visible yet. Current view contains sofa; the agent keeps rotating to scan the unfamiliar room before confirming the red cup.",
       "action": "TURN_RIGHT",
-      "confidence": 0.31,
+      "confidence": 0.276,
       "done": false,
       "robot": {
         "x": 1.2,
@@ -36,7 +318,292 @@
         "sofa"
       ],
       "backend": "local_ppt_style",
-      "scene": "FloorPlan211-compatible"
+      "scene": "FloorPlan211-compatible",
+      "structured_thought": {
+        "observation": "当前画面middle center有一个gray的区域，可能是目标物体。置信度：0.28",
+        "reasoning": "当前区域置信度较低 (0.28)，建议继续探索其他区域。 记忆提示：cups are often on tables, counters, or near sinks",
+        "action": "仔细检查",
+        "confidence": "0.276"
+      },
+      "target_binding": {
+        "language": true,
+        "clicked_point": null,
+        "target_crop": false,
+        "mode": "language_only"
+      },
+      "skill_call": {
+        "name": "INSPECT",
+        "args": {
+          "region": "table"
+        },
+        "preconditions": [],
+        "expected_observation": "Execute INSPECT"
+      },
+      "planner_source": "model_planner",
+      "memory_summary": "2 steps recorded. Last action=TURN_RIGHT; explored regions=middle center:2; negative memories=2; recalled episodes=3.",
+      "recalled_memories": [
+        {
+          "id": 9,
+          "namespace": "visual_search",
+          "session_id": "final-polished-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "STOP",
+          "action_success": true,
+          "confidence": 0.9,
+          "region": "middle right",
+          "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "simulator_oracle",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute STOP",
+              "name": "STOP",
+              "preconditions": []
+            },
+            "step_id": 3
+          },
+          "created_at": "2026-07-09T22:14:55.792023+00:00",
+          "similarity": 1.0
+        },
+        {
+          "id": 5,
+          "namespace": "visual_search",
+          "session_id": "final-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "STOP",
+          "action_success": true,
+          "confidence": 0.9,
+          "region": "middle right",
+          "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "simulator_oracle",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute STOP",
+              "name": "STOP",
+              "preconditions": []
+            },
+            "step_id": 3
+          },
+          "created_at": "2026-07-09T22:12:21.613018+00:00",
+          "similarity": 1.0
+        },
+        {
+          "id": 8,
+          "namespace": "visual_search",
+          "session_id": "final-polished-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "TURN_RIGHT",
+          "action_success": true,
+          "confidence": 0.276,
+          "region": "middle center",
+          "lesson": "TURN_RIGHT executed successfully while searching middle center with confidence 0.276; compare the next observation before selecting another action.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "model_planner",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -108.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute MOVE_FORWARD",
+              "name": "MOVE_FORWARD",
+              "preconditions": []
+            },
+            "step_id": 2
+          },
+          "created_at": "2026-07-09T22:14:53.915310+00:00",
+          "similarity": 1.0
+        }
+      ],
+      "search_map": {
+        "visited_counts": {
+          "upper left": 0,
+          "upper center": 0,
+          "upper right": 0,
+          "middle left": 0,
+          "middle center": 2,
+          "middle right": 0,
+          "lower left": 0,
+          "lower center": 0,
+          "lower right": 0
+        },
+        "unexplored_regions": [
+          "upper left",
+          "upper center",
+          "upper right",
+          "middle left",
+          "middle right",
+          "lower left",
+          "lower center",
+          "lower right"
+        ],
+        "confidence_by_region": {
+          "middle center": 0.276
+        },
+        "negative_memory": [
+          "Searched middle center but confidence stayed low.",
+          "Searched middle center but confidence stayed low."
+        ],
+        "recalled_memories": [
+          {
+            "id": 9,
+            "namespace": "visual_search",
+            "session_id": "final-polished-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "STOP",
+            "action_success": true,
+            "confidence": 0.9,
+            "region": "middle right",
+            "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "simulator_oracle",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute STOP",
+                "name": "STOP",
+                "preconditions": []
+              },
+              "step_id": 3
+            },
+            "created_at": "2026-07-09T22:14:55.792023+00:00",
+            "similarity": 1.0
+          },
+          {
+            "id": 5,
+            "namespace": "visual_search",
+            "session_id": "final-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "STOP",
+            "action_success": true,
+            "confidence": 0.9,
+            "region": "middle right",
+            "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "simulator_oracle",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute STOP",
+                "name": "STOP",
+                "preconditions": []
+              },
+              "step_id": 3
+            },
+            "created_at": "2026-07-09T22:12:21.613018+00:00",
+            "similarity": 1.0
+          },
+          {
+            "id": 8,
+            "namespace": "visual_search",
+            "session_id": "final-polished-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "TURN_RIGHT",
+            "action_success": true,
+            "confidence": 0.276,
+            "region": "middle center",
+            "lesson": "TURN_RIGHT executed successfully while searching middle center with confidence 0.276; compare the next observation before selecting another action.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "model_planner",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -108.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute MOVE_FORWARD",
+                "name": "MOVE_FORWARD",
+                "preconditions": []
+              },
+              "step_id": 2
+            },
+            "created_at": "2026-07-09T22:14:53.915310+00:00",
+            "similarity": 1.0
+          }
+        ]
+      },
+      "model_info": {
+        "status": "ok",
+        "provider": "kimi",
+        "model": "moonshot-v1-8k-vision-preview",
+        "vision_input_used": true
+      },
+      "fallback_reason": null
     },
     {
       "frame_path": "docs\\demo_outputs\\frames\\demo_frame_02.png",
@@ -44,7 +611,7 @@
       "topdown_path": "docs\\demo_outputs\\frames\\demo_topdown_02.png",
       "thought": "The target is not visible yet. Current view contains blue book, sofa; the agent keeps rotating to scan the unfamiliar room before confirming the red cup.",
       "action": "TURN_RIGHT",
-      "confidence": 0.31,
+      "confidence": 0.276,
       "done": false,
       "robot": {
         "x": 1.2,
@@ -57,15 +624,299 @@
         "sofa"
       ],
       "backend": "local_ppt_style",
-      "scene": "FloorPlan211-compatible"
+      "scene": "FloorPlan211-compatible",
+      "structured_thought": {
+        "observation": "当前画面middle center有一个gray的区域，可能是目标物体。置信度：0.28",
+        "reasoning": "当前区域置信度较低 (0.28)，建议继续探索其他区域。 记忆提示：cups are often on tables, counters, or near sinks",
+        "action": "仔细检查",
+        "confidence": "0.276"
+      },
+      "target_binding": {
+        "language": true,
+        "clicked_point": null,
+        "target_crop": false,
+        "mode": "language_only"
+      },
+      "skill_call": {
+        "name": "INSPECT",
+        "args": {},
+        "preconditions": [],
+        "expected_observation": "Execute INSPECT"
+      },
+      "planner_source": "model_planner",
+      "memory_summary": "3 steps recorded. Last action=TURN_RIGHT; explored regions=middle center:3; negative memories=3; recalled episodes=3.",
+      "recalled_memories": [
+        {
+          "id": 9,
+          "namespace": "visual_search",
+          "session_id": "final-polished-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "STOP",
+          "action_success": true,
+          "confidence": 0.9,
+          "region": "middle right",
+          "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "simulator_oracle",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute STOP",
+              "name": "STOP",
+              "preconditions": []
+            },
+            "step_id": 3
+          },
+          "created_at": "2026-07-09T22:14:55.792023+00:00",
+          "similarity": 1.0
+        },
+        {
+          "id": 5,
+          "namespace": "visual_search",
+          "session_id": "final-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "STOP",
+          "action_success": true,
+          "confidence": 0.9,
+          "region": "middle right",
+          "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "simulator_oracle",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute STOP",
+              "name": "STOP",
+              "preconditions": []
+            },
+            "step_id": 3
+          },
+          "created_at": "2026-07-09T22:12:21.613018+00:00",
+          "similarity": 1.0
+        },
+        {
+          "id": 8,
+          "namespace": "visual_search",
+          "session_id": "final-polished-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "TURN_RIGHT",
+          "action_success": true,
+          "confidence": 0.276,
+          "region": "middle center",
+          "lesson": "TURN_RIGHT executed successfully while searching middle center with confidence 0.276; compare the next observation before selecting another action.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "model_planner",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -108.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute MOVE_FORWARD",
+              "name": "MOVE_FORWARD",
+              "preconditions": []
+            },
+            "step_id": 2
+          },
+          "created_at": "2026-07-09T22:14:53.915310+00:00",
+          "similarity": 1.0
+        }
+      ],
+      "search_map": {
+        "visited_counts": {
+          "upper left": 0,
+          "upper center": 0,
+          "upper right": 0,
+          "middle left": 0,
+          "middle center": 3,
+          "middle right": 0,
+          "lower left": 0,
+          "lower center": 0,
+          "lower right": 0
+        },
+        "unexplored_regions": [
+          "upper left",
+          "upper center",
+          "upper right",
+          "middle left",
+          "middle right",
+          "lower left",
+          "lower center",
+          "lower right"
+        ],
+        "confidence_by_region": {
+          "middle center": 0.276
+        },
+        "negative_memory": [
+          "Searched middle center but confidence stayed low.",
+          "Searched middle center but confidence stayed low.",
+          "Searched middle center but confidence stayed low."
+        ],
+        "recalled_memories": [
+          {
+            "id": 9,
+            "namespace": "visual_search",
+            "session_id": "final-polished-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "STOP",
+            "action_success": true,
+            "confidence": 0.9,
+            "region": "middle right",
+            "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "simulator_oracle",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute STOP",
+                "name": "STOP",
+                "preconditions": []
+              },
+              "step_id": 3
+            },
+            "created_at": "2026-07-09T22:14:55.792023+00:00",
+            "similarity": 1.0
+          },
+          {
+            "id": 5,
+            "namespace": "visual_search",
+            "session_id": "final-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "STOP",
+            "action_success": true,
+            "confidence": 0.9,
+            "region": "middle right",
+            "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "simulator_oracle",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute STOP",
+                "name": "STOP",
+                "preconditions": []
+              },
+              "step_id": 3
+            },
+            "created_at": "2026-07-09T22:12:21.613018+00:00",
+            "similarity": 1.0
+          },
+          {
+            "id": 8,
+            "namespace": "visual_search",
+            "session_id": "final-polished-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "TURN_RIGHT",
+            "action_success": true,
+            "confidence": 0.276,
+            "region": "middle center",
+            "lesson": "TURN_RIGHT executed successfully while searching middle center with confidence 0.276; compare the next observation before selecting another action.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "model_planner",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -108.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute MOVE_FORWARD",
+                "name": "MOVE_FORWARD",
+                "preconditions": []
+              },
+              "step_id": 2
+            },
+            "created_at": "2026-07-09T22:14:53.915310+00:00",
+            "similarity": 1.0
+          }
+        ]
+      },
+      "model_info": {
+        "status": "ok",
+        "provider": "kimi",
+        "model": "moonshot-v1-8k-vision-preview",
+        "vision_input_used": true
+      },
+      "fallback_reason": null
     },
     {
       "frame_path": "docs\\demo_outputs\\frames\\demo_frame_03.png",
       "observation_path": "docs\\demo_outputs\\frames\\demo_obs_03.png",
       "topdown_path": "docs\\demo_outputs\\frames\\demo_topdown_03.png",
-      "thought": "Target-like evidence is strong; strongest candidate is a red region at middle right. Confidence 0.96 is high enough, so the agent stops and reports the target.",
+      "thought": "Target-like evidence is strong; strongest candidate is a red region at middle right. 检索提示: cups are often on tables, counters, or near sinks; inspect tabletop regions before floor regions; avoid repeating low-confidence regions: Searched middle center but confidence stayed low. | Searched middle center but confidence stayed low.。下一步动作是 INSPECT，因为置信度为 0.93。",
       "action": "STOP",
-      "confidence": 0.959,
+      "confidence": 0.928,
       "done": true,
       "robot": {
         "x": 1.2,
@@ -75,12 +926,12 @@
       "best_candidate": {
         "label": "red cup",
         "bbox": [
-          252,
-          186,
-          384,
-          255
+          282,
+          244,
+          406,
+          291
         ],
-        "confidence": 0.959,
+        "confidence": 0.928,
         "color_name": "red",
         "region": "middle right",
         "reason": "red visual signature; located in middle right; matches requested color"
@@ -92,7 +943,291 @@
         "sofa"
       ],
       "backend": "local_ppt_style",
-      "scene": "FloorPlan211-compatible"
+      "scene": "FloorPlan211-compatible",
+      "structured_thought": {
+        "observation": "当前画面middle right有一个red的区域，可能是目标物体。置信度：0.93",
+        "reasoning": "发现疑似目标，但置信度 0.93 还不够高，需要更近距离观察或换个角度。",
+        "action": "仔细检查",
+        "confidence": "0.928"
+      },
+      "target_binding": {
+        "language": true,
+        "clicked_point": null,
+        "target_crop": false,
+        "mode": "language_only"
+      },
+      "skill_call": {
+        "name": "STOP",
+        "args": {},
+        "preconditions": [],
+        "expected_observation": "Execute STOP"
+      },
+      "planner_source": "simulator_oracle",
+      "memory_summary": "4 steps recorded. Last action=STOP; explored regions=middle center:3, middle right:1; negative memories=3; recalled episodes=3.",
+      "recalled_memories": [
+        {
+          "id": 9,
+          "namespace": "visual_search",
+          "session_id": "final-polished-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "STOP",
+          "action_success": true,
+          "confidence": 0.9,
+          "region": "middle right",
+          "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "simulator_oracle",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute STOP",
+              "name": "STOP",
+              "preconditions": []
+            },
+            "step_id": 3
+          },
+          "created_at": "2026-07-09T22:14:55.792023+00:00",
+          "similarity": 1.0
+        },
+        {
+          "id": 5,
+          "namespace": "visual_search",
+          "session_id": "final-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "STOP",
+          "action_success": true,
+          "confidence": 0.9,
+          "region": "middle right",
+          "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "simulator_oracle",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute STOP",
+              "name": "STOP",
+              "preconditions": []
+            },
+            "step_id": 3
+          },
+          "created_at": "2026-07-09T22:12:21.613018+00:00",
+          "similarity": 1.0
+        },
+        {
+          "id": 8,
+          "namespace": "visual_search",
+          "session_id": "final-polished-memory-demo",
+          "instruction": "Locate the red cup",
+          "action": "TURN_RIGHT",
+          "action_success": true,
+          "confidence": 0.276,
+          "region": "middle center",
+          "lesson": "TURN_RIGHT executed successfully while searching middle center with confidence 0.276; compare the next observation before selecting another action.",
+          "metadata": {
+            "environment": {
+              "backend": "local_ppt_style",
+              "scene": "FloorPlan211-compatible"
+            },
+            "planner_source": "model_planner",
+            "robot_after": {
+              "heading": -78.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "robot_before": {
+              "heading": -108.0,
+              "x": 1.2,
+              "y": 4.4
+            },
+            "skill_call": {
+              "args": {},
+              "expected_observation": "Execute MOVE_FORWARD",
+              "name": "MOVE_FORWARD",
+              "preconditions": []
+            },
+            "step_id": 2
+          },
+          "created_at": "2026-07-09T22:14:53.915310+00:00",
+          "similarity": 1.0
+        }
+      ],
+      "search_map": {
+        "visited_counts": {
+          "upper left": 0,
+          "upper center": 0,
+          "upper right": 0,
+          "middle left": 0,
+          "middle center": 3,
+          "middle right": 1,
+          "lower left": 0,
+          "lower center": 0,
+          "lower right": 0
+        },
+        "unexplored_regions": [
+          "upper left",
+          "upper center",
+          "upper right",
+          "middle left",
+          "lower left",
+          "lower center",
+          "lower right"
+        ],
+        "confidence_by_region": {
+          "middle center": 0.276,
+          "middle right": 0.928
+        },
+        "negative_memory": [
+          "Searched middle center but confidence stayed low.",
+          "Searched middle center but confidence stayed low.",
+          "Searched middle center but confidence stayed low."
+        ],
+        "recalled_memories": [
+          {
+            "id": 9,
+            "namespace": "visual_search",
+            "session_id": "final-polished-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "STOP",
+            "action_success": true,
+            "confidence": 0.9,
+            "region": "middle right",
+            "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "simulator_oracle",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute STOP",
+                "name": "STOP",
+                "preconditions": []
+              },
+              "step_id": 3
+            },
+            "created_at": "2026-07-09T22:14:55.792023+00:00",
+            "similarity": 1.0
+          },
+          {
+            "id": 5,
+            "namespace": "visual_search",
+            "session_id": "final-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "STOP",
+            "action_success": true,
+            "confidence": 0.9,
+            "region": "middle right",
+            "lesson": "STOP completed the search in middle right with confidence 0.900; preserve the final visual evidence before stopping.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "simulator_oracle",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute STOP",
+                "name": "STOP",
+                "preconditions": []
+              },
+              "step_id": 3
+            },
+            "created_at": "2026-07-09T22:12:21.613018+00:00",
+            "similarity": 1.0
+          },
+          {
+            "id": 8,
+            "namespace": "visual_search",
+            "session_id": "final-polished-memory-demo",
+            "instruction": "Locate the red cup",
+            "action": "TURN_RIGHT",
+            "action_success": true,
+            "confidence": 0.276,
+            "region": "middle center",
+            "lesson": "TURN_RIGHT executed successfully while searching middle center with confidence 0.276; compare the next observation before selecting another action.",
+            "metadata": {
+              "environment": {
+                "backend": "local_ppt_style",
+                "scene": "FloorPlan211-compatible"
+              },
+              "planner_source": "model_planner",
+              "robot_after": {
+                "heading": -78.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "robot_before": {
+                "heading": -108.0,
+                "x": 1.2,
+                "y": 4.4
+              },
+              "skill_call": {
+                "args": {},
+                "expected_observation": "Execute MOVE_FORWARD",
+                "name": "MOVE_FORWARD",
+                "preconditions": []
+              },
+              "step_id": 2
+            },
+            "created_at": "2026-07-09T22:14:53.915310+00:00",
+            "similarity": 1.0
+          }
+        ]
+      },
+      "model_info": {
+        "status": "ok",
+        "provider": "kimi",
+        "model": "moonshot-v1-8k-vision-preview",
+        "vision_input_used": true
+      },
+      "fallback_reason": null
     }
   ],
   "video_path": "docs\\demo_outputs\\embodied_visual_search_demo.mp4",

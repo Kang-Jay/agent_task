@@ -3,500 +3,1003 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>具身视觉搜索智能体演示</title>
+  <title>具身视觉搜索智能体控制台</title>
   <style>
     :root {
-      --bg: #070b12;
-      --panel: #111827;
-      --panel2: #172033;
-      --line: #334155;
-      --text: #eef6ff;
-      --muted: #9fb2c8;
-      --cyan: #35d9c6;
-      --blue: #58a6ff;
-      --green: #5ee29b;
-      --red: #ff6b61;
-      --amber: #ffc857;
-      --purple: #a78bfa;
+      --bg: #080b10;
+      --surface: #101620;
+      --surface-2: #151e2b;
+      --surface-3: #0b111a;
+      --line: #2b394b;
+      --line-strong: #3b5069;
+      --text: #edf4fc;
+      --muted: #91a3b8;
+      --cyan: #36d6c7;
+      --blue: #61a8ff;
+      --green: #62d99f;
+      --amber: #f2bd5b;
+      --red: #ff716c;
+      --violet: #aa8cff;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
+      background: var(--bg);
       color: var(--text);
-      background: linear-gradient(135deg, #070b12 0%, #111827 48%, #10151f 100%);
-      font-family: 'Microsoft YaHei', 'PingFang SC', Inter, Segoe UI, Arial, sans-serif;
+      font: 14px/1.5 "Microsoft YaHei", "PingFang SC", Inter, Arial, sans-serif;
     }
+    button, input, select, textarea { font: inherit; }
     header {
-      height: 72px;
-      padding: 0 24px;
+      height: 66px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      padding: 0 18px;
       border-bottom: 1px solid var(--line);
-      background: rgba(8, 17, 31, 0.92);
-      backdrop-filter: blur(12px);
+      background: #0b111a;
     }
-    h1 { margin: 0; font-size: 21px; letter-spacing: 0; }
-    .subtitle { color: var(--muted); font-size: 13px; }
-    main {
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
       display: grid;
-      grid-template-columns: 380px 1fr;
-      gap: 18px;
-      padding: 18px;
+      place-items: center;
+      border: 1px solid var(--cyan);
+      border-radius: 7px;
+      color: var(--cyan);
+      font-weight: 900;
     }
-    .panel {
-      background: rgba(17, 28, 45, 0.92);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 16px;
-      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22);
+    h1 { margin: 0; font-size: 18px; letter-spacing: 0; }
+    .subtitle { color: var(--muted); font-size: 12px; }
+    .runtime-badge {
+      padding: 6px 9px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
     }
-    label { display: block; margin: 14px 0 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
-    textarea, input, select {
+    .shell {
+      display: grid;
+      grid-template-columns: 340px minmax(520px, 1fr) 360px;
+      min-height: calc(100vh - 66px);
+    }
+    aside, .workspace, .inspector { min-width: 0; }
+    aside {
+      padding: 14px;
+      border-right: 1px solid var(--line);
+      background: #0d131c;
+      overflow-y: auto;
+    }
+    .workspace {
+      display: grid;
+      grid-template-rows: minmax(440px, 1fr) 250px;
+      background: #05080d;
+      min-height: calc(100vh - 66px);
+    }
+    .inspector {
+      padding: 14px;
+      border-left: 1px solid var(--line);
+      background: #0d131c;
+      overflow-y: auto;
+    }
+    .section {
+      padding: 13px 0 15px;
+      border-bottom: 1px solid var(--line);
+    }
+    .section:first-child { padding-top: 0; }
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    label {
+      display: block;
+      margin: 10px 0 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    input, select, textarea {
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 6px;
-      padding: 10px;
-      background: #0b1626;
+      padding: 9px 10px;
+      background: var(--surface-3);
       color: var(--text);
-      font: inherit;
-      transition: border-color 0.2s;
     }
-    textarea:focus, input:focus, select:focus {
+    textarea { min-height: 74px; resize: vertical; }
+    textarea.code {
+      min-height: 112px;
+      font: 12px/1.55 Consolas, "SFMono-Regular", monospace;
+    }
+    input:focus, select:focus, textarea:focus {
       outline: none;
       border-color: var(--cyan);
     }
-    textarea { min-height: 86px; resize: vertical; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
     button {
-      border: 0;
+      min-height: 36px;
+      border: 1px solid transparent;
       border-radius: 6px;
+      padding: 8px 11px;
       background: var(--cyan);
-      color: #041017;
-      padding: 10px 12px;
+      color: #041311;
       font-weight: 800;
       cursor: pointer;
-      transition: all 0.2s;
     }
-    button:hover { background: #2dc4b6; transform: translateY(-1px); }
-    button.secondary { background: #31445f; color: var(--text); }
-    button.secondary:hover { background: #3d5370; }
-    .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-    .stage {
-      display: grid;
-      grid-template-columns: minmax(440px, 1.4fr) minmax(330px, 0.8fr);
-      gap: 14px;
-      min-height: 600px;
+    button:hover { filter: brightness(1.08); }
+    button.secondary {
+      border-color: var(--line-strong);
+      background: var(--surface-2);
+      color: var(--text);
     }
-    .viewport, .map, .brain, .trace {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      overflow: hidden;
+    button.danger {
+      border-color: #743b3b;
+      background: #351b1c;
+      color: #ffb1ad;
     }
-    .viewport {
-      min-height: 600px;
-      position: relative;
-      cursor: crosshair;
-    }
-    .viewport:hover { border-color: var(--cyan); }
-    .side-stack { display: grid; grid-template-rows: 330px 1fr; gap: 14px; }
-    .map { min-height: 330px; position: relative; }
-    .brain { min-height: 256px; padding: 16px; }
-    .viewport img, .map img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      background: #111827;
-      display: block;
-    }
-    .map img { object-fit: contain; background: #f8fafc; }
-    .tag {
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-      display: block;
-    }
-    .action {
-      color: var(--cyan);
-      font-size: 24px;
-      font-weight: 900;
-      margin: 10px 0;
-    }
-    .confidence {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 4px;
-      font-size: 14px;
-      font-weight: 800;
-      margin-top: 8px;
-    }
-    .confidence.high { background: rgba(94, 226, 155, 0.2); color: var(--green); }
-    .confidence.medium { background: rgba(255, 200, 87, 0.2); color: var(--amber); }
-    .confidence.low { background: rgba(255, 107, 97, 0.2); color: var(--red); }
-    .thought-section {
-      margin-top: 16px;
-      padding: 12px;
-      background: rgba(0, 0, 0, 0.2);
-      border-left: 3px solid var(--blue);
-      border-radius: 4px;
-    }
-    .thought-section .label {
-      font-size: 11px;
-      color: var(--blue);
-      font-weight: 800;
-      text-transform: uppercase;
-      margin-bottom: 6px;
-    }
-    .thought-section .content {
-      line-height: 1.6;
-      color: #dbeafe;
-      font-size: 14px;
-    }
-    .meta {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 8px;
-      margin-top: 12px;
-    }
-    .metric {
-      background: #0b1626;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 9px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    .metric strong { display: block; color: var(--text); font-size: 15px; margin-top: 4px; }
-    .timeline {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 10px;
-      margin-top: 14px;
-    }
-    .step-card {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel2);
-      padding: 10px;
-      min-height: 96px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .step-card:hover {
-      border-color: var(--blue);
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-    .step-card.active {
-      border-color: var(--cyan);
-      box-shadow: 0 0 0 2px var(--cyan) inset;
-    }
-    .step-card strong { display: block; margin-bottom: 6px; }
-    .step-card span { display: block; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
     .status {
-      min-height: 38px;
-      color: var(--muted);
-      margin-top: 12px;
-      line-height: 1.45;
-      font-size: 13px;
-    }
-    .env {
-      margin-top: 12px;
+      min-height: 58px;
       padding: 10px;
-      border: 1px solid #4b5563;
+      border: 1px solid var(--line);
       border-radius: 6px;
-      background: #0b1626;
-      color: #cbd5e1;
-      font-size: 12px;
-      line-height: 1.45;
+      background: var(--surface-3);
+      color: var(--muted);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .status.ok { border-color: #2d6a50; color: var(--green); }
+    .status.error { border-color: #733e42; color: #ffaaa5; }
+    .status.busy { border-color: #735d2c; color: var(--amber); }
+    .action-meta {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 11px;
       white-space: pre-wrap;
     }
-    video {
+    .visual-stage {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 310px;
+      gap: 1px;
+      background: var(--line);
+      min-height: 440px;
+    }
+    .view, .map-view {
+      position: relative;
+      overflow: hidden;
+      background: #020305;
+    }
+    .view img, .map-view img {
       width: 100%;
-      max-height: 260px;
-      margin-top: 14px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #000;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+    }
+    .map-view { background: #f5f7fa; }
+    .view-label {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      padding: 5px 8px;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 5px;
+      background: rgba(5, 8, 13, .78);
+      color: #dce8f7;
+      font-size: 11px;
+      pointer-events: none;
+    }
+    .empty-view {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: #536478;
+      text-align: center;
+      pointer-events: none;
     }
     .click-marker {
       position: absolute;
-      width: 20px;
-      height: 20px;
-      border: 3px solid var(--cyan);
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--cyan);
       border-radius: 50%;
       transform: translate(-50%, -50%);
+      box-shadow: 0 0 0 5px rgba(54,214,199,.18);
       pointer-events: none;
-      animation: pulse 1s infinite;
     }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-      50% { opacity: 0.5; transform: translate(-50%, -50%) scale(1.2); }
+    .lower {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      border-top: 1px solid var(--line);
+      min-height: 250px;
     }
-    .info-badge {
-      display: inline-block;
-      padding: 3px 8px;
-      background: rgba(88, 166, 255, 0.15);
-      color: var(--blue);
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 700;
-      margin-left: 8px;
+    .timeline-pane, .video-pane {
+      padding: 12px;
+      overflow: auto;
+      background: #0b111a;
     }
-    .section-header {
-      font-size: 13px;
-      font-weight: 800;
+    .video-pane { border-left: 1px solid var(--line); }
+    .timeline {
+      display: flex;
+      gap: 8px;
+      min-width: max-content;
+    }
+    .step-card {
+      width: 168px;
+      min-height: 118px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface);
+      cursor: pointer;
+    }
+    .step-card.active { border-color: var(--cyan); }
+    .step-card strong { display: block; color: var(--text); margin-bottom: 6px; }
+    .step-card span { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+    video { width: 100%; height: 184px; background: #000; }
+    .decision-action {
+      margin: 3px 0 8px;
       color: var(--cyan);
-      margin: 18px 0 8px 0;
-      padding-bottom: 6px;
-      border-bottom: 1px solid var(--line);
+      font-size: 24px;
+      font-weight: 900;
+      overflow-wrap: anywhere;
     }
-    @media (max-width: 1100px) {
-      main { grid-template-columns: 1fr; }
-      .stage { grid-template-columns: 1fr; }
+    .confidence {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 5px;
+      color: var(--amber);
+      background: rgba(242,189,91,.12);
+      font-weight: 800;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin-top: 12px;
+    }
+    .metric {
+      min-width: 0;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface-3);
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .metric strong {
+      display: block;
+      margin-top: 3px;
+      color: var(--text);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .trace-block {
+      margin-top: 11px;
+      padding: 10px;
+      border-left: 3px solid var(--blue);
+      background: var(--surface-3);
+    }
+    .trace-block.violet { border-left-color: var(--violet); }
+    .trace-block.green { border-left-color: var(--green); }
+    .trace-block.red { border-left-color: var(--red); }
+    .trace-label {
+      margin-bottom: 5px;
+      color: var(--blue);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .trace-block.violet .trace-label { color: var(--violet); }
+    .trace-block.green .trace-label { color: var(--green); }
+    .trace-block.red .trace-label { color: var(--red); }
+    .trace-content {
+      color: #dbe8f6;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    @media (max-width: 1280px) {
+      .shell { grid-template-columns: 320px minmax(480px, 1fr); }
+      .inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
+    }
+    @media (max-width: 860px) {
+      .shell { display: block; }
+      aside, .inspector { border: 0; border-bottom: 1px solid var(--line); }
+      .visual-stage { grid-template-columns: 1fr; grid-template-rows: 55vh 300px; }
+      .lower { grid-template-columns: 1fr; }
+      .video-pane { border-left: 0; border-top: 1px solid var(--line); }
     }
   </style>
 </head>
 <body>
   <header>
-    <div>
-      <h1>🤖 具身视觉搜索智能体演示</h1>
-      <span class="subtitle">AI2-THOR FloorPlan211 模拟器 + 机器人视角 + 思考/动作轨迹</span>
+    <div class="brand">
+      <div class="brand-mark">A2</div>
+      <div>
+        <h1>具身视觉搜索智能体控制台</h1>
+        <div class="subtitle">AI2-THOR · 多模态决策 · 动作执行 · 后置条件验证</div>
+      </div>
     </div>
-    <div class="info-badge">Powered by Claude Opus 4.8</div>
+    <div class="runtime-badge" id="runtimeBadge">正在检查运行环境</div>
   </header>
-  <main>
-    <aside class="panel">
-      <div class="section-header">任务配置</div>
-      <label for="instruction">任务指令</label>
-      <textarea id="instruction" placeholder="输入搜索任务，例如：找到房间里的电视">找到房间里的电视</textarea>
 
-      <label for="backend">模拟器后端</label>
-      <select id="backend">
-        <option value="ai2thor">真实 AI2-THOR FloorPlan211 (严格模式，无回退)</option>
-        <option value="local">本地 FloorPlan211 兼容演示</option>
-      </select>
-
-      <label for="scene">场景</label>
-      <input id="scene" value="FloorPlan211" placeholder="场景名称">
-
-      <label for="session">会话 ID</label>
-      <input id="session" value="recorded-demo" placeholder="会话标识符">
-
-      <div class="buttons">
-        <button id="runDemo">▶ 运行演示</button>
-        <button class="secondary" id="play">⏯ 播放回放</button>
-        <button class="secondary" id="diag">📊 模拟器状态</button>
-        <button class="secondary" id="audit">🔍 审计 API</button>
+  <div class="shell">
+    <aside>
+      <div class="section">
+        <div class="section-title"><span>任务配置</span><span id="modelBadge">模型待机</span></div>
+        <label for="instruction">任务指令</label>
+        <textarea id="instruction">找到房间里的电视</textarea>
+        <div class="grid-2">
+          <div>
+            <label for="backend">运行后端</label>
+            <select id="backend">
+              <option value="ai2thor">真实 AI2-THOR</option>
+              <option value="local">本地兼容演示</option>
+            </select>
+          </div>
+          <div>
+            <label for="agentMode">Agent 模式</label>
+            <select id="agentMode">
+              <option value="default">default</option>
+              <option value="locobot">locobot</option>
+              <option value="drone">drone</option>
+              <option value="arm">arm</option>
+              <option value="stretch">stretch</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div>
+            <label for="scene">场景</label>
+            <input id="scene" value="FloorPlan211">
+          </div>
+          <div>
+            <label for="session">会话 ID</label>
+            <input id="session" value="interactive-demo">
+          </div>
+        </div>
+        <div class="actions">
+          <button id="runDemo">运行 Agent</button>
+          <button class="danger" id="stopAgent" disabled>停止 Agent</button>
+          <button class="secondary" id="play">播放轨迹</button>
+          <button class="secondary" id="audit">模型审计</button>
+        </div>
       </div>
 
-      <div class="section-header">状态信息</div>
-      <div class="status" id="status">就绪。运行严格的 AI2-THOR 演示以生成真实的模拟器轨迹和视频。</div>
-      <div class="env" id="env">正在检查模拟器运行时...</div>
+      <div class="section">
+        <div class="section-title"><span>实时仿真会话</span><span id="liveState">未启动</span></div>
+        <div class="actions">
+          <button id="startLive">启动场景</button>
+          <button class="danger" id="stopLive" disabled>关闭场景</button>
+        </div>
+        <div class="status" id="liveStatus">启动后可逐步调用当前模式支持的动作。</div>
+      </div>
 
-      <div class="section-header">视频回放</div>
-      <video id="video" controls></video>
+      <div class="section">
+        <div class="section-title"><span>动作空间</span><span id="actionCount">0</span></div>
+        <div class="grid-2">
+          <div>
+            <label for="actorLevel">权限级别</label>
+            <select id="actorLevel">
+              <option value="manual">manual</option>
+              <option value="system">system</option>
+            </select>
+          </div>
+          <div>
+            <label for="actionCategory">动作类别</label>
+            <select id="actionCategory"><option value="">全部</option></select>
+          </div>
+        </div>
+        <label for="manualAction">动作</label>
+        <select id="manualAction"></select>
+        <div class="action-meta" id="actionMeta">尚未加载动作目录。</div>
+        <label for="actionArgs">动作参数 JSON</label>
+        <textarea class="code" id="actionArgs">{}</textarea>
+        <div class="actions">
+          <button id="executeAction" disabled>执行动作</button>
+          <button class="secondary" id="reloadActions">刷新目录</button>
+        </div>
+      </div>
 
-      <div style="margin-top: 16px; padding: 12px; background: rgba(53, 217, 198, 0.1); border-radius: 6px; font-size: 12px; line-height: 1.6; color: var(--cyan);">
-        💡 <strong>提示：</strong>点击左侧机器人视角图像可以选择目标物体，系统将自动裁剪并使用多模态搜索。
+      <div class="section">
+        <div class="section-title"><span>运行状态</span><span id="phase">idle</span></div>
+        <div class="status" id="status">等待任务。</div>
       </div>
     </aside>
 
-    <section class="panel">
-      <div class="stage">
-        <div class="viewport" id="viewport">
-          <img id="pov" alt="机器人第一人称视角" src="">
+    <main class="workspace">
+      <div class="visual-stage">
+        <div class="view" id="viewport">
+          <img id="pov" alt="机器人第一人称视觉">
+          <div class="view-label">Robot POV</div>
+          <div class="empty-view" id="povEmpty">启动实时场景或运行 Agent 后显示视觉帧</div>
         </div>
-        <div class="side-stack">
-          <div class="map">
-            <img id="map" alt="俯视搜索地图" src="">
-          </div>
-          <div class="brain">
-            <span class="tag">智能体决策</span>
-            <div class="action" id="action">等待中</div>
-            <div class="confidence low" id="confidence">置信度 0.000</div>
-
-            <div class="meta">
-              <div class="metric">后端<strong id="backendLabel">-</strong></div>
-              <div class="metric">场景<strong id="sceneLabel">-</strong></div>
-              <div class="metric">步骤<strong id="stepLabel">0</strong></div>
-              <div class="metric">模式<strong id="modeLabel">语言</strong></div>
-            </div>
-
-            <div class="thought-section">
-              <div class="label">👁 视觉观察</div>
-              <div class="content" id="observation">演示尚未开始。</div>
-            </div>
-
-            <div class="thought-section">
-              <div class="label">🧠 推理过程</div>
-              <div class="content" id="reasoning">等待智能体推理...</div>
-            </div>
-          </div>
+        <div class="map-view">
+          <img id="map" alt="AI2-THOR Unity 3D 全局俯拍与轨迹">
+          <div class="view-label" id="mapSource">Unity 3D Global Map</div>
+          <div class="empty-view" id="mapEmpty">Agent 运行后显示 Unity 实时俯拍与轨迹</div>
         </div>
       </div>
+      <div class="lower">
+        <div class="timeline-pane">
+          <div class="section-title"><span>执行轨迹</span><span id="stepCount">0 steps</span></div>
+          <div class="timeline" id="timeline"></div>
+        </div>
+        <div class="video-pane">
+          <div class="section-title"><span>演示录像</span><span id="videoState">未生成</span></div>
+          <video id="video" controls></video>
+        </div>
+      </div>
+    </main>
 
-      <div class="section-header">执行轨迹</div>
-      <div class="timeline" id="timeline"></div>
+    <section class="inspector">
+      <div class="section-title"><span>智能体决策</span><span id="plannerSource">-</span></div>
+      <div class="decision-action" id="action">等待任务</div>
+      <div class="confidence" id="confidence">置信度 0.000</div>
+      <div class="metrics">
+        <div class="metric">后端<strong id="backendLabel">-</strong></div>
+        <div class="metric">场景<strong id="sceneLabel">-</strong></div>
+        <div class="metric">步骤<strong id="stepLabel">0</strong></div>
+        <div class="metric">模式<strong id="modeLabel">-</strong></div>
+        <div class="metric">Skill<strong id="skillName">-</strong></div>
+        <div class="metric">模型<strong id="modelLabel">-</strong></div>
+      </div>
+      <div class="trace-block">
+        <div class="trace-label">视觉观察</div>
+        <div class="trace-content" id="observation">尚无观察。</div>
+      </div>
+      <div class="trace-block violet">
+        <div class="trace-label">决策摘要</div>
+        <div class="trace-content" id="reasoning">尚无决策。</div>
+      </div>
+      <div class="trace-block green">
+        <div class="trace-label">任务与完成条件</div>
+        <div class="trace-content" id="taskPlan">尚未解析任务。</div>
+      </div>
+      <div class="trace-block">
+        <div class="trace-label">记忆</div>
+        <div class="trace-content" id="memorySummary">尚无会话记忆。</div>
+      </div>
+      <div class="trace-block red">
+        <div class="trace-label">执行反馈</div>
+        <div class="trace-content" id="executionFeedback">尚无执行结果。</div>
+      </div>
     </section>
-  </main>
+  </div>
 
   <script>
     let steps = [];
     let cursor = 0;
     let clickedPoint = null;
     let currentBackend = "ai2thor";
+    let liveSessionActive = false;
+    let actionCatalog = [];
+    let filteredActions = [];
+    let streamController = null;
+    let currentTaskPlan = {};
 
-    function asset(path) {
-      return "/" + path.replaceAll("\\\\", "/");
+    const $ = id => document.getElementById(id);
+    const asset = path => path ? "/" + String(path).replaceAll("\\", "/") : "";
+    const pretty = value => JSON.stringify(value ?? {}, null, 2);
+
+    function setStatus(message, kind = "") {
+      $("status").textContent = message;
+      $("status").className = `status ${kind}`.trim();
+    }
+
+    function setImage(id, emptyId, source) {
+      const image = $(id);
+      const empty = $(emptyId);
+      image.src = source || "";
+      empty.style.display = source ? "none" : "grid";
     }
 
     function renderStep(index) {
       if (!steps.length) return;
       cursor = Math.max(0, Math.min(index, steps.length - 1));
       const step = steps[cursor];
-
-      document.getElementById("pov").src = asset(step.observation_path);
-      document.getElementById("map").src = asset(step.topdown_path);
-      document.getElementById("action").textContent = step.action;
-      document.getElementById("stepLabel").textContent = cursor;
-
-      // 置信度样式
-      const confElem = document.getElementById("confidence");
-      const conf = step.confidence;
-      confElem.textContent = `置信度 ${conf.toFixed(3)}`;
-      confElem.className = 'confidence ' + (conf >= 0.78 ? 'high' : conf >= 0.50 ? 'medium' : 'low');
-
-      document.getElementById("backendLabel").textContent = step.backend || currentBackend || "local";
-      document.getElementById("sceneLabel").textContent = step.scene || document.getElementById("scene").value;
-
-      // 结构化思考
-      if (step.structured_thought) {
-        document.getElementById("observation").textContent = step.structured_thought.observation || "无观察数据";
-        document.getElementById("reasoning").textContent = step.structured_thought.reasoning || "无推理数据";
-      } else {
-        document.getElementById("observation").textContent = step.thought || "无思考数据";
-        document.getElementById("reasoning").textContent = "（旧版数据格式）";
-      }
-
-      // 模式标签
-      if (step.target_binding && step.target_binding.mode) {
-        const modeMap = {
-          "multimodal": "多模态",
-          "language_only": "语言"
-        };
-        document.getElementById("modeLabel").textContent = modeMap[step.target_binding.mode] || step.target_binding.mode;
-      }
-
+      setImage("pov", "povEmpty", asset(step.observation_path));
+      setImage("map", "mapEmpty", asset(step.topdown_path));
+      $("mapSource").textContent =
+        step.map_view_source === "unity_third_party_camera"
+          ? "Unity 3D Global Map"
+          : "2D Map Fallback";
+      $("action").textContent = step.action || "UNKNOWN";
+      $("confidence").textContent = `置信度 ${Number(step.confidence || 0).toFixed(3)}`;
+      $("backendLabel").textContent = step.backend || currentBackend;
+      $("sceneLabel").textContent = step.scene || $("scene").value;
+      $("stepLabel").textContent = String(cursor);
+      $("modeLabel").textContent = step.target_binding?.mode || $("agentMode").value;
+      $("plannerSource").textContent = step.planner_source || "-";
+      $("skillName").textContent = step.skill_call?.name || step.action || "-";
+      $("modelLabel").textContent = step.model_info?.model || step.fallback_reason || "-";
+      $("observation").textContent =
+        step.structured_thought?.observation || step.thought || "无观察摘要";
+      $("reasoning").textContent =
+        step.structured_thought?.reasoning || step.thought || "无决策摘要";
+      $("memorySummary").textContent = step.memory_summary || "无会话记忆";
+      $("taskPlan").textContent = [
+        `任务类型: ${(step.task_plan?.task_types || []).join(", ") || "-"}`,
+        `需要动作: ${(step.task_plan?.required_actions || []).join(", ") || "-"}`,
+        `完成规则: ${step.task_plan?.completion_rule || "-"}`,
+        `完成状态: ${step.completion_status?.complete ? "已验证" : "未完成"}`,
+        `原因: ${step.completion_status?.reason || "-"}`
+      ].join("\n");
+      $("executionFeedback").textContent = pretty(step.execution || {
+        status: "录像步骤未包含详细执行记录"
+      });
       document.querySelectorAll(".step-card").forEach((card, idx) => {
         card.classList.toggle("active", idx === cursor);
       });
     }
 
     function renderTimeline() {
-      const el = document.getElementById("timeline");
-      el.innerHTML = steps.map((step, idx) => `
+      $("stepCount").textContent = `${steps.length} steps`;
+      $("timeline").innerHTML = steps.map((step, idx) => `
         <div class="step-card ${idx === 0 ? "active" : ""}" data-step="${idx}">
-          <strong>步骤 ${idx}: ${step.action}</strong>
-          <span>置信度 ${step.confidence.toFixed(3)}</span>
-          <span>${step.visible_objects.join(", ") || "无可见物体"}</span>
+          <strong>${idx}. ${step.action || "UNKNOWN"}</strong>
+          <span>confidence ${Number(step.confidence || 0).toFixed(3)}</span>
+          <span>${(step.visible_objects || []).join(", ") || "no visible objects"}</span>
+          <span>${step.planner_source || "-"}</span>
         </div>
       `).join("");
-      el.querySelectorAll(".step-card").forEach(card => {
+      document.querySelectorAll(".step-card").forEach(card => {
         card.addEventListener("click", () => renderStep(Number(card.dataset.step)));
       });
     }
 
-    async function runDemo() {
-      const status = document.getElementById("status");
-      const backend = document.getElementById("backend").value;
-      currentBackend = backend;
-      status.textContent = "正在运行模拟器和智能体循环，然后录制视频...";
-      const endpoint = backend === "ai2thor" ? "/api/demo/ai2thor/run" : "/api/demo/run";
-      const res = await fetch(endpoint, {
+    function renderTaskState(taskPlan, completionStatus = {}) {
+      if (taskPlan && Object.keys(taskPlan).length) currentTaskPlan = taskPlan;
+      const plan = currentTaskPlan || {};
+      $("taskPlan").textContent = [
+        `任务类型: ${(plan.task_types || []).join(", ") || "-"}`,
+        `需要动作: ${(plan.required_actions || []).join(", ") || "-"}`,
+        `完成规则: ${plan.completion_rule || "-"}`,
+        `支持状态: ${plan.supported === false ? "不支持" : "支持"}`,
+        `完成状态: ${completionStatus.complete ? "已验证" : "未完成"}`,
+        `原因: ${completionStatus.reason || plan.clarification || "-"}`
+      ].join("\n");
+    }
+
+    function applyStreamEvent(message) {
+      const event = message.event;
+      const payload = message.payload || {};
+      if (event === "task_parsed") {
+        $("phase").textContent = "task parsed";
+        renderTaskState(payload.task_plan || {});
+        setStatus(`任务已解析，准备启动 ${payload.scene}。`, "busy");
+      } else if (event === "simulator_starting") {
+        $("phase").textContent = "starting simulator";
+        setStatus(`正在启动 ${payload.scene || $("scene").value} Unity 场景。`, "busy");
+      } else if (event === "simulator_ready") {
+        $("phase").textContent = "simulator ready";
+        $("backendLabel").textContent = "ai2thor";
+        $("sceneLabel").textContent = payload.scene || $("scene").value;
+        $("modeLabel").textContent = payload.agent_mode || $("agentMode").value;
+      } else if (event === "observation_ready") {
+        $("phase").textContent = "observing";
+        $("stepLabel").textContent = String(payload.step_id ?? 0);
+        setImage("pov", "povEmpty", asset(payload.observation_path));
+        $("observation").textContent = pretty({
+          robot: payload.robot,
+          visible_objects: payload.visible_objects
+        });
+      } else if (event === "model_request_started") {
+        $("phase").textContent = "model reasoning";
+        $("modelBadge").textContent = "模型推理中";
+        $("modelLabel").textContent =
+          payload.planner?.model || payload.planner?.provider || "model planner";
+        setStatus(`步骤 ${payload.step_id}: 正在进行视觉与任务决策。`, "busy");
+      } else if (event === "model_decision") {
+        const proposed = payload.proposed_action || {};
+        $("phase").textContent = "decision ready";
+        $("action").textContent = proposed.type || proposed.name || "UNKNOWN";
+        $("confidence").textContent =
+          `置信度 ${Number(payload.confidence || 0).toFixed(3)}`;
+        $("plannerSource").textContent = payload.planner_source || "-";
+        $("modelLabel").textContent =
+          payload.model_info?.model || payload.model_info?.provider || "-";
+        $("reasoning").textContent =
+          payload.structured_thought?.reasoning || payload.thought || "无决策摘要";
+        renderTaskState(payload.task_plan || {}, payload.completion_status || {});
+      } else if (event === "action_validated") {
+        $("phase").textContent = "action validated";
+        $("action").textContent = payload.action || "UNKNOWN";
+        $("skillName").textContent = payload.action || "-";
+        $("executionFeedback").textContent = pretty({
+          stage: "validated",
+          action: payload.action,
+          args: payload.args,
+          done: payload.done,
+          grounded_target: payload.grounded_target
+        });
+      } else if (event === "action_executed") {
+        $("phase").textContent = "environment feedback";
+        $("executionFeedback").textContent = pretty({
+          action: payload.action,
+          action_success: payload.action_success,
+          execution: payload.execution
+        });
+      } else if (event === "environment_feedback") {
+        $("memorySummary").textContent =
+          payload.memory_summary || "当前步骤尚无记忆摘要";
+        renderTaskState({}, payload.completion_status || {});
+        $("executionFeedback").textContent = pretty({
+          action_success: payload.action_success,
+          robot_before: payload.robot_before,
+          robot_after: payload.robot_after,
+          visible_objects: payload.visible_objects
+        });
+      } else if (event === "step_completed") {
+        steps.push(payload.step);
+        renderTimeline();
+        renderStep(steps.length - 1);
+        setStatus(`已完成步骤 ${payload.step_id}，继续闭环观察。`, "busy");
+      } else if (event === "episode_completed") {
+        const result = payload.result || {};
+        $("video").src = asset(result.video_path) + `?t=${Date.now()}`;
+        $("videoState").textContent = "已生成";
+        $("phase").textContent = "completed";
+        $("modelBadge").textContent = "模型待机";
+        setStatus(`完成 ${steps.length} 个步骤。录像: ${result.video_path}`, "ok");
+      } else if (event === "episode_cancelled") {
+        $("phase").textContent = "cancelled";
+        $("modelBadge").textContent = "模型待机";
+        setStatus(payload.message || "Agent 已停止。", "error");
+      } else if (event === "error") {
+        $("phase").textContent = "error";
+        $("modelBadge").textContent = "模型错误";
+        setStatus(`${payload.error_type || "Error"}: ${payload.message || "unknown"}`, "error");
+      }
+    }
+
+    async function runAI2ThorStream(payload) {
+      streamController = new AbortController();
+      $("stopAgent").disabled = false;
+      const response = await fetch("/api/demo/ai2thor/stream", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          instruction: document.getElementById("instruction").value,
-          scene: document.getElementById("scene").value,
-          max_steps: 20,
-          allow_fallback: false
-        })
+        body: JSON.stringify(payload),
+        signal: streamController.signal
       });
-      const data = await res.json();
-      if (!res.ok) {
-        status.textContent = data.detail || "演示失败。";
-        return;
+      if (!response.ok) {
+        let detail;
+        try {
+          detail = await response.json();
+        } catch {
+          detail = await response.text();
+        }
+        throw new Error(pretty(detail.detail || detail));
       }
-      steps = data.steps;
+      if (!response.body) throw new Error("浏览器不支持流式响应。");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let buffer = "";
+      while (true) {
+        const {value, done} = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), {stream: !done});
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.trim()) applyStreamEvent(JSON.parse(line));
+        }
+        if (done) break;
+      }
+      if (buffer.trim()) applyStreamEvent(JSON.parse(buffer));
+    }
+
+    function stopAgent() {
+      if (streamController) streamController.abort();
+    }
+
+    async function runDemo() {
+      const backend = $("backend").value;
+      currentBackend = backend;
+      $("phase").textContent = "running";
+      setStatus("正在运行 Agent、仿真器和录像管线。", "busy");
+      const payload = {
+        session_id: $("session").value,
+        instruction: $("instruction").value,
+        scene: $("scene").value,
+        agent_mode: $("agentMode").value,
+        max_steps: 20,
+        allow_fallback: false,
+        clicked_point: clickedPoint
+      };
+      steps = [];
+      currentTaskPlan = {};
       renderTimeline();
-      renderStep(0);
-      const video = document.getElementById("video");
-      video.src = asset(data.video_path) + `?t=${Date.now()}`;
-      let note = `生成了 ${steps.length} 个步骤并录制了 ${data.video_path}。`;
-      if (data.ai2thor_error) {
-        note += ` AI2-THOR 回退原因：${data.ai2thor_error.slice(0, 180)}`;
+      $("video").removeAttribute("src");
+      $("videoState").textContent = "生成中";
+      try {
+        if (backend === "ai2thor") {
+          await runAI2ThorStream(payload);
+          return;
+        }
+        const endpoint = "/api/demo/run";
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(pretty(data.detail || data));
+        steps = data.steps || [];
+        renderTimeline();
+        if (steps.length) renderStep(0);
+        $("video").src = asset(data.video_path) + `?t=${Date.now()}`;
+        $("videoState").textContent = "已生成";
+        $("phase").textContent = "completed";
+        setStatus(`完成 ${steps.length} 个步骤。录像: ${data.video_path}`, "ok");
+      } catch (error) {
+        if (error.name === "AbortError") {
+          $("phase").textContent = "cancelled";
+          setStatus("已请求停止 Agent，正在回收仿真资源。", "error");
+        } else {
+          $("phase").textContent = "error";
+          setStatus(String(error), "error");
+        }
+      } finally {
+        streamController = null;
+        $("stopAgent").disabled = true;
+        $("modelBadge").textContent = "模型待机";
       }
-      status.textContent = note;
     }
 
     async function playReplay() {
       if (!steps.length) await runDemo();
-      for (let i = 0; i < steps.length; i += 1) {
-        renderStep(i);
-        await new Promise(resolve => setTimeout(resolve, 900));
+      for (let index = 0; index < steps.length; index += 1) {
+        renderStep(index);
+        await new Promise(resolve => setTimeout(resolve, 850));
       }
     }
 
-    // 点击图像选择目标物体
-    document.getElementById("pov").addEventListener("click", async (event) => {
-      const img = event.target;
-      const rect = img.getBoundingClientRect();
-      const x = Math.round((event.clientX - rect.left) * (img.naturalWidth / rect.width));
-      const y = Math.round((event.clientY - rect.top) * (img.naturalHeight / rect.height));
-
-      clickedPoint = [x, y];
-
-      // 显示点击标记
-      const viewport = document.getElementById("viewport");
-      const existingMarker = viewport.querySelector(".click-marker");
-      if (existingMarker) existingMarker.remove();
-
-      const marker = document.createElement("div");
-      marker.className = "click-marker";
-      marker.style.left = (event.clientX - rect.left) + "px";
-      marker.style.top = (event.clientY - rect.top) + "px";
-      viewport.appendChild(marker);
-
-      document.getElementById("status").textContent = `已选择目标点：(${x}, ${y})。下次运行将使用多模态搜索。`;
-      console.log("点击坐标:", x, y);
-
-      // 可选：立即测试点选功能（需要有观察图像）
-      // await testClickSelection(x, y);
-    });
-
-    document.getElementById("runDemo").addEventListener("click", runDemo);
-    document.getElementById("play").addEventListener("click", playReplay);
-    document.getElementById("audit").addEventListener("click", async () => {
-      const res = await fetch("/api/agent/audit");
-      const data = await res.json();
-      document.getElementById("status").textContent = `API 审计：${JSON.stringify(data.model_adapter)}`;
-    });
-    document.getElementById("diag").addEventListener("click", loadStatus);
-
-    async function loadStatus() {
-      const res = await fetch("/api/simulator/status");
-      const data = await res.json();
-      document.getElementById("env").textContent =
-        `${data.backend} ${data.scene}\n${data.message}\n严格的 AI2-THOR 运行不会自动回退。显式选择本地模式以获得 PPT 风格的回退。`;
+    function preferredOverload(action) {
+      const mode = $("agentMode").value;
+      const overloads = action.overloads_by_mode?.[mode] || [];
+      return [...overloads].sort((left, right) => {
+        const leftRequired = (left.parameters || []).filter(item => item.required).length;
+        const rightRequired = (right.parameters || []).filter(item => item.required).length;
+        return leftRequired - rightRequired || (left.parameters || []).length - (right.parameters || []).length;
+      })[0] || {};
     }
 
+    function defaultValue(parameter) {
+      if (Object.prototype.hasOwnProperty.call(parameter, "default")) return parameter.default;
+      const type = String(parameter.type || "");
+      if (type === "bool") return false;
+      if (["float", "double", "decimal", "int", "long", "short"].includes(type.replace("?", ""))) return 0;
+      if (type.endsWith("[]") || type.startsWith("List<")) return [];
+      if (["Vector2", "Vector3", "Quaternion", "Color"].includes(type.replace("?", ""))) {
+        return {x: 0, y: 0, z: 0};
+      }
+      return "";
+    }
+
+    function renderActionSelection() {
+      const category = $("actionCategory").value;
+      filteredActions = actionCatalog.filter(action => !category || action.category === category);
+      $("manualAction").innerHTML = filteredActions.map(action =>
+        `<option value="${action.name}">${action.name} · ${action.category} · ${action.exposure}</option>`
+      ).join("");
+      renderActionArgs();
+    }
+
+    function renderActionArgs() {
+      const action = filteredActions.find(item => item.name === $("manualAction").value);
+      if (!action) {
+        $("actionArgs").value = "{}";
+        $("actionMeta").textContent = "当前筛选没有动作。";
+        return;
+      }
+      const overload = preferredOverload(action);
+      const args = {};
+      for (const parameter of overload.parameters || []) {
+        if (parameter.type === "ServerAction") continue;
+        if (parameter.required || Object.prototype.hasOwnProperty.call(parameter, "default")) {
+          args[parameter.name] = defaultValue(parameter);
+        }
+      }
+      $("actionArgs").value = pretty(args);
+      $("actionMeta").textContent = [
+        `模式: ${(action.modes || []).join(", ")}`,
+        `分类: ${action.category}`,
+        `权限: ${action.exposure}`,
+        `声明: ${overload.source || "-"}:${overload.line || "-"}`,
+        overload.legacy_server_action ? "参数由旧版 ServerAction 运行时校验" : ""
+      ].filter(Boolean).join("\n");
+    }
+
+    async function loadActions() {
+      const mode = $("agentMode").value;
+      const actor = $("actorLevel").value;
+      $("actionCount").textContent = "loading";
+      try {
+        const response = await fetch(
+          `/api/simulator/actions?mode=${encodeURIComponent(mode)}&actor=${encodeURIComponent(actor)}`
+        );
+        const data = await response.json();
+        if (!response.ok) throw new Error(pretty(data));
+        actionCatalog = data.actions || [];
+        const categories = [...new Set(actionCatalog.map(action => action.category))].sort();
+        $("actionCategory").innerHTML =
+          `<option value="">全部</option>` +
+          categories.map(category => `<option value="${category}">${category}</option>`).join("");
+        $("actionCount").textContent = String(actionCatalog.length);
+        renderActionSelection();
+      } catch (error) {
+        actionCatalog = [];
+        $("actionCount").textContent = "error";
+        $("actionMeta").textContent = String(error);
+      }
+    }
+
+    async function startLiveSession() {
+      $("liveStatus").textContent = "正在启动真实 AI2-THOR 场景。";
+      $("liveStatus").className = "status busy";
+      try {
+        const response = await fetch("/api/simulator/session/start", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            session_id: $("session").value,
+            scene: $("scene").value,
+            mode: $("agentMode").value
+          })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(pretty(data.detail || data));
+        liveSessionActive = true;
+        $("liveState").textContent = "运行中";
+        $("stopLive").disabled = false;
+        $("executeAction").disabled = false;
+        $("liveStatus").className = "status ok";
+        $("liveStatus").textContent = `${data.scene} / ${data.mode} 已启动`;
+        setImage("pov", "povEmpty", data.frame);
+        $("backendLabel").textContent = "ai2thor-live";
+        $("sceneLabel").textContent = data.scene;
+        $("modeLabel").textContent = data.mode;
+        $("executionFeedback").textContent = pretty({
+          last_action: data.last_action,
+          success: data.last_action_success,
+          visible_objects: data.visible_objects
+        });
+      } catch (error) {
+        $("liveStatus").className = "status error";
+        $("liveStatus").textContent = String(error);
+      }
+    }
+
+    async function stopLiveSession() {
+      try {
+        const response = await fetch(`/api/simulator/session/${encodeURIComponent($("session").value)}`, {
+          method: "DELETE"
+        });
+        const data = await response.json();
+        liveSessionActive = false;
+        $("liveState").textContent = "已关闭";
+        $("stopLive").disabled = true;
+        $("executeAction").disabled = true;
+        $("liveStatus").className = "status";
+        $("liveStatus").textContent = data.closed ? "场景已关闭。" : "未找到活动场景。";
+      } catch (error) {
+        $("liveStatus").className = "status error";
+        $("liveStatus").textContent = String(error);
+      }
+    }
+
+    async function executeManualAction() {
+      if (!liveSessionActive) return;
+      const action = actionCatalog.find(item => item.name === $("manualAction").value);
+      if (!action) return;
+      if (action.exposure === "system" && !confirm(`系统动作 ${action.name} 可能修改场景或运行状态，确认执行？`)) {
+        return;
+      }
+      let args;
+      try {
+        args = JSON.parse($("actionArgs").value || "{}");
+      } catch (error) {
+        $("liveStatus").className = "status error";
+        $("liveStatus").textContent = `参数 JSON 无效: ${error}`;
+        return;
+      }
+      $("liveStatus").className = "status busy";
+      $("liveStatus").textContent = `正在执行 ${action.name}`;
+      try {
+        const response = await fetch("/api/simulator/session/action", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            session_id: $("session").value,
+            action: action.name,
+            args,
+            actor: $("actorLevel").value
+          })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(pretty(data.detail || data));
+        setImage("pov", "povEmpty", data.frame);
+        $("action").textContent = data.execution?.action || action.name;
+        $("skillName").textContent = action.name;
+        $("executionFeedback").textContent = pretty({
+          requested_action: action.name,
+          executed_action: data.execution?.action,
+          args: data.execution?.args,
+          lastActionSuccess: data.last_action_success,
+          errorMessage: data.error_message,
+          actionReturn: data.action_return,
+          postcondition: data.postcondition,
+          agent: data.agent,
+          inventory_objects: data.inventory_objects
+        });
+        const passed = data.execution?.success && data.postcondition?.passed;
+        $("liveStatus").className = passed ? "status ok" : "status error";
+        $("liveStatus").textContent = passed
+          ? `${action.name} 执行并通过后置条件验证`
+          : `${action.name} 未通过: ${data.error_message || data.postcondition?.reason || "unknown"}`;
+      } catch (error) {
+        $("liveStatus").className = "status error";
+        $("liveStatus").textContent = String(error);
+      }
+    }
+
+    async function loadStatus() {
+      try {
+        const response = await fetch("/api/simulator/status");
+        const data = await response.json();
+        const diagnostics = data.diagnostics || {};
+        $("runtimeBadge").textContent = diagnostics.catalog_error
+          ? "动作目录与运行时不匹配"
+          : `${diagnostics.ai2thor_version || "AI2-THOR"} · ${String(diagnostics.ai2thor_build_commit || "").slice(0, 8)}`;
+      } catch {
+        $("runtimeBadge").textContent = "运行环境不可达";
+      }
+    }
+
+    $("pov").addEventListener("click", event => {
+      if (!$("pov").naturalWidth) return;
+      const rect = $("pov").getBoundingClientRect();
+      const x = Math.round((event.clientX - rect.left) * ($("pov").naturalWidth / rect.width));
+      const y = Math.round((event.clientY - rect.top) * ($("pov").naturalHeight / rect.height));
+      clickedPoint = [x, y];
+      document.querySelector(".click-marker")?.remove();
+      const marker = document.createElement("div");
+      marker.className = "click-marker";
+      marker.style.left = `${event.clientX - rect.left}px`;
+      marker.style.top = `${event.clientY - rect.top}px`;
+      $("viewport").appendChild(marker);
+      setStatus(`已选择视觉目标点 (${x}, ${y})。`);
+    });
+
+    $("runDemo").addEventListener("click", runDemo);
+    $("stopAgent").addEventListener("click", stopAgent);
+    $("play").addEventListener("click", playReplay);
+    $("startLive").addEventListener("click", startLiveSession);
+    $("stopLive").addEventListener("click", stopLiveSession);
+    $("executeAction").addEventListener("click", executeManualAction);
+    $("reloadActions").addEventListener("click", loadActions);
+    $("manualAction").addEventListener("change", renderActionArgs);
+    $("actionCategory").addEventListener("change", renderActionSelection);
+    $("agentMode").addEventListener("change", loadActions);
+    $("actorLevel").addEventListener("change", loadActions);
+    $("audit").addEventListener("click", async () => {
+      const response = await fetch("/api/agent/audit");
+      const data = await response.json();
+      $("executionFeedback").textContent = pretty(data);
+    });
+
     loadStatus();
-    runDemo();
+    loadActions();
   </script>
 </body>
 </html>

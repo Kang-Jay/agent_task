@@ -134,7 +134,7 @@ class HeuristicVision:
     ) -> list[Candidate]:
         prototype = np.array(COLOR_PROTOTYPES[color_name], dtype=np.float32)
         distance = np.linalg.norm(arr - prototype, axis=2)
-        mask = distance < 92.0
+        mask = self._color_mask(arr, color_name, distance)
         min_pixels = max(24, int(arr.shape[0] * arr.shape[1] * float(self.vision_config["min_candidate_area_ratio"]) * 0.08))
         regions = self._connected_components(mask, min_pixels=min_pixels)
         candidates: list[Candidate] = []
@@ -142,7 +142,11 @@ class HeuristicVision:
             patch = arr[top:bottom, left:right]
             if patch.size == 0:
                 continue
-            mean = patch.reshape(-1, 3).mean(axis=0)
+            component_mask = mask[top:bottom, left:right]
+            component_pixels = patch[component_mask]
+            if component_pixels.size == 0:
+                continue
+            mean = component_pixels.reshape(-1, 3).mean(axis=0)
             _, color_strength = self._best_color(mean)
             center_y = (top + bottom) / 2
             center_x = (left + right) / 2
@@ -163,6 +167,26 @@ class HeuristicVision:
                 )
             )
         return candidates
+
+    def _color_mask(
+        self,
+        arr: np.ndarray,
+        color_name: str,
+        distance: np.ndarray,
+    ) -> np.ndarray:
+        red = arr[:, :, 0]
+        green = arr[:, :, 1]
+        blue = arr[:, :, 2]
+        base = distance < 92.0
+        dominance = {
+            "red": (red >= 145) & (red >= green * 1.35) & (red >= blue * 1.25),
+            "green": (green >= 105) & (green >= red * 1.20) & (green >= blue * 1.12),
+            "blue": (blue >= 135) & (blue >= red * 1.25) & (blue >= green * 1.20),
+            "yellow": (red >= 150) & (green >= 125) & (blue <= green * 0.75),
+            "orange": (red >= 160) & (green >= 75) & (green <= red * 0.78) & (blue <= green),
+            "purple": (red >= 100) & (blue >= 110) & (green <= red * 0.78),
+        }
+        return base & dominance.get(color_name, np.ones_like(base, dtype=bool))
 
     def _extract_sliding_crop_regions(
         self,

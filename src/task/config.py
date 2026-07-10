@@ -96,6 +96,10 @@ def validate_config(config: AgentConfig) -> None:
     if stop_threshold != eval_threshold:
         raise ValueError("agent stop threshold and evaluation success threshold must match")
 
+    min_success_iou = float(raw["evaluation"]["min_success_iou"])
+    if not 0.0 <= min_success_iou <= 1.0:
+        raise ValueError("evaluation.min_success_iou must be between 0 and 1")
+
     weights = [
         float(raw["vision"]["color_match_weight"]),
         float(raw["vision"]["text_match_weight"]),
@@ -103,6 +107,18 @@ def validate_config(config: AgentConfig) -> None:
     ]
     if abs(sum(weights) - 1.0) > 1e-6:
         raise ValueError("vision match weights must sum to 1.0")
+
+    memory_capacity = int(raw["memory"]["long_term_capacity"])
+    negative_capacity = int(raw["memory"]["negative_memory_capacity"])
+    retrieval_top_k = int(raw["memory"]["retrieval_top_k"])
+    if memory_capacity <= 0:
+        raise ValueError("memory.long_term_capacity must be positive")
+    if negative_capacity <= 0:
+        raise ValueError("memory.negative_memory_capacity must be positive")
+    if retrieval_top_k <= 0 or retrieval_top_k > memory_capacity:
+        raise ValueError(
+            "memory.retrieval_top_k must be positive and no greater than long_term_capacity"
+        )
 
     stages = raw["pipeline"]["stages"]
     expected = [
@@ -118,4 +134,3 @@ def validate_config(config: AgentConfig) -> None:
     ]
     if stages != expected:
         raise ValueError("pipeline stages differ from the documented project pipeline")
-

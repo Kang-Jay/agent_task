@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+
+from src.agent.controller import EmbodiedSearchAgent
+from src.agent.model_adapter import ModelAdapter
+from src.task.config import AgentConfig, load_config
+from src.types.schema import AgentRequest
+
+
+class ExecutionCommitTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._temporary_directory = TemporaryDirectory()
+        default_config = load_config()
+        raw = deepcopy(default_config.raw)
+        raw["data"]["trajectory_dir"] = str(
+            Path(cls._temporary_directory.name) / "trajectories"
+        )
+        cls.config = AgentConfig(raw=raw, path=default_config.path)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._temporary_directory.cleanup()
+
+    def test_executed_action_replaces_proposal_in_memory_and_trace(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        session_id = "execution-commit"
+        response = agent.step(
+            AgentRequest(
+                session_id=session_id,
+                instruction="Find the red cup on the table",
+                observation_image=str(
+                    self.config.image_dir / "ep_red_cup_visible_000.png"
+                ),
+                step_id=0,
+            )
+        )
+        response_dict = response.to_dict()
+        proposed_action = response_dict["action"]
+        response_dict["action"] = {
+            "type": "TURN_RIGHT",
+            "args": {"angle": 30},
+        }
+        response_dict["done"] = False
+        response_dict["planner_source"] = "simulator_oracle"
+        response_dict["skill_call"] = {
+            "name": "TURN_RIGHT",
+            "args": {"angle": 30},
+            "preconditions": [],
+            "expected_observation": "camera heading changes",
+        }
+
+        committed = agent.commit_execution(
+            session_id,
+            response_dict,
+            step_id=0,
+            action_success=True,
+            robot_before={"x": 0.0, "y": 0.0, "heading": 0.0},
+            robot_after={"x": 0.0, "y": 0.0, "heading": 30.0},
+        )
+
+        trace = agent.export_trace(session_id)
+        step = trace["steps"][-1]
+        self.assertEqual(step["proposed_action"], proposed_action)
+        self.assertEqual(step["action"]["type"], "TURN_RIGHT")
+        self.assertEqual(step["executed_action"]["type"], "TURN_RIGHT")
+        self.assertEqual(step["planner_source"], "simulator_oracle")
+        self.assertTrue(step["action_success"])
+        self.assertEqual(step["robot_after"]["heading"], 30.0)
+        self.assertIn("Last action=TURN_RIGHT", committed["memory_summary"])
+
+    def test_step_id_commit_does_not_modify_newer_pending_step(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        session_id = "execution-step-isolation"
+        image_path = str(self.config.image_dir / "ep_red_cup_visible_000.png")
+        first = agent.step(
+            AgentRequest(
+                session_id=session_id,
+                instruction="Find the red cup on the table",
+                observation_image=image_path,
+                step_id=0,
+            )
+        )
+        agent.step(
+            AgentRequest(
+                session_id=session_id,
+                instruction="Find the red cup on the table",
+                observation_image=image_path,
+                step_id=1,
+            )
+        )
+        agent.commit_execution(
+            session_id,
+            first.to_dict(),
+            step_id=0,
+            action_success=True,
+        )
+        trace = agent.export_trace(session_id)
+        self.assertTrue(trace["steps"][0]["action_success"])
+        self.assertNotIn("action_success", trace["steps"][1])
+
+    def test_session_id_rejects_path_traversal(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        with self.assertRaises(ValueError):
+            agent.reset("../outside")
+
+    def test_session_cannot_silently_change_instruction(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        state = agent.memory.get_or_create("same-session", "Find the cup")
+        self.assertEqual(state.instruction, "Find the cup")
+        with self.assertRaises(ValueError):
+            agent.memory.get_or_create("same-session", "Find the television")
+
+
+if __name__ == "__main__":
+    unittest.main()

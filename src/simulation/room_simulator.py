@@ -27,6 +27,17 @@ FONT_CANDIDATES = (
 )
 
 
+def load_render_font(size: int) -> ImageFont.ImageFont:
+    for font_path in FONT_CANDIDATES:
+        if not font_path.exists():
+            continue
+        try:
+            return ImageFont.truetype(str(font_path), size=size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
 @dataclass
 class SceneObject:
     name: str
@@ -484,14 +495,7 @@ class RoomSimulator:
 
     @staticmethod
     def _load_font(size: int) -> ImageFont.ImageFont:
-        for font_path in FONT_CANDIDATES:
-            if not font_path.exists():
-                continue
-            try:
-                return ImageFont.truetype(str(font_path), size=size)
-            except OSError:
-                continue
-        return ImageFont.load_default()
+        return load_render_font(size)
 
     def apply_action(self, state: RobotState, action: str) -> None:
         if action == "TURN_RIGHT":

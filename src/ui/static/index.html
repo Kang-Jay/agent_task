@@ -658,6 +658,13 @@
           execution: payload.execution
         });
       } else if (event === "environment_feedback") {
+        if (
+          payload.observation_phase === "after_action" &&
+          payload.observation_path
+        ) {
+          setImage("pov", "povEmpty", asset(payload.observation_path));
+          $("phase").textContent = "observing after action";
+        }
         $("memorySummary").textContent =
           payload.memory_summary || "当前步骤尚无记忆摘要";
         renderTaskState({}, payload.completion_status || {});

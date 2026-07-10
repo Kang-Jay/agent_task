@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from src.agent.controller import EmbodiedSearchAgent
 from src.simulation.ai2thor_actions import AI2ThorActionCatalog, AI2ThorActionExecutor
@@ -30,7 +30,7 @@ from src.simulation.ai2thor_runtime import (
     should_snap_to_grid,
 )
 from src.simulation.object_closeup import render_closeup, resolve_clicked_object
-from src.simulation.room_simulator import DemoResult, DemoStep
+from src.simulation.room_simulator import DemoResult, DemoStep, load_render_font
 from src.simulation.stream_protocol import StreamCancelled, StreamEventEmitter
 from src.simulation.video_encoding import write_browser_compatible_mp4
 from src.task.config import ROOT, load_config
@@ -273,12 +273,18 @@ class AI2ThorVisualSearchDemo:
                         ).to_context()
                     )
                 obs = Image.fromarray(event.frame).convert("RGB")
-                obs_path = frame_dir / f"ai2thor_obs_{step_id:02d}.png"
-                obs.save(obs_path)
+                pre_action_obs_path = (
+                    frame_dir / f"ai2thor_obs_{step_id:02d}.png"
+                )
+                obs.save(pre_action_obs_path)
                 emitter.emit(
                     "observation_ready",
                     step_id=step_id,
-                    observation_path=str(obs_path.relative_to(ROOT)),
+                    observation_path=str(
+                        pre_action_obs_path.relative_to(ROOT)
+                    ),
+                    observation_phase="before_action",
+                    purpose="model_input_audit",
                     robot=self._robot_state(event.metadata),
                     visible_objects=self._visible_objects(event.metadata)[:20],
                 )
@@ -422,7 +428,12 @@ class AI2ThorVisualSearchDemo:
                     interaction_binding=interaction_binding,
                 )
                 robot_before = self._robot_state(event.metadata)
-                agent_path.append(robot_before)
+                if (
+                    not agent_path
+                    or robot_before["x"] != agent_path[-1]["x"]
+                    or robot_before["y"] != agent_path[-1]["y"]
+                ):
+                    agent_path.append(robot_before)
                 next_event = event
                 action_success = action_type != "ASK_CLARIFY"
                 execution_record: dict[str, Any] | None = None
@@ -463,6 +474,13 @@ class AI2ThorVisualSearchDemo:
                     action_success=action_success,
                     execution=execution_record,
                 )
+                post_action_obs = Image.fromarray(
+                    next_event.frame
+                ).convert("RGB")
+                post_action_obs_path = frame_dir / (
+                    f"ai2thor_obs_after_{step_id:02d}.png"
+                )
+                post_action_obs.save(post_action_obs_path)
                 post_grounded_target = (
                     self._ground_target_from_segmentation(
                         next_event,
@@ -507,6 +525,12 @@ class AI2ThorVisualSearchDemo:
                         }
                     post_environment_context["approach"] = post_approach
                 robot_after = self._robot_state(next_event.metadata)
+                if (
+                    not agent_path
+                    or robot_after["x"] != agent_path[-1]["x"]
+                    or robot_after["y"] != agent_path[-1]["y"]
+                ):
+                    agent_path.append(robot_after)
                 committed = self.agent.commit_execution(
                     session_id,
                     response_dict,
@@ -558,18 +582,27 @@ class AI2ThorVisualSearchDemo:
                     )
                 topdown_path = frame_dir / f"ai2thor_topdown_{step_id:02d}.png"
                 topdown.save(topdown_path)
-                frame = self._compose_frame(obs, topdown, response_dict, instruction, step_id, visible_objects)
+                frame = self._compose_frame(
+                    post_action_obs,
+                    topdown,
+                    response_dict,
+                    instruction,
+                    step_id,
+                    visible_objects,
+                )
                 frame_path = frame_dir / f"ai2thor_frame_{step_id:02d}.png"
                 frame.save(frame_path)
                 step_record = DemoStep(
                     frame_path=str(frame_path.relative_to(ROOT)),
-                    observation_path=str(obs_path.relative_to(ROOT)),
+                    observation_path=str(
+                        post_action_obs_path.relative_to(ROOT)
+                    ),
                     topdown_path=str(topdown_path.relative_to(ROOT)),
                     thought=response_dict["thought"],
                     action=action_type,
                     confidence=response_dict["confidence"],
                     done=done,
-                    robot=robot_before,
+                    robot=robot_after,
                     best_candidate=response_dict["observation"].get("best_candidate"),
                     visible_objects=visible_objects[:10],
                     backend="ai2thor",
@@ -595,6 +628,10 @@ class AI2ThorVisualSearchDemo:
                     step_id=step_id,
                     robot_before=robot_before,
                     robot_after=robot_after,
+                    observation_path=str(
+                        post_action_obs_path.relative_to(ROOT)
+                    ),
+                    observation_phase="after_action",
                     visible_objects=visible_objects[:20],
                     action_success=action_success,
                     memory_summary=response_dict.get("memory_summary", ""),
@@ -1046,6 +1083,8 @@ class AI2ThorVisualSearchDemo:
             (520, 520)
         )
         draw = ImageDraw.Draw(image)
+        map_font = load_render_font(14)
+        map_small_font = load_render_font(12)
 
         def project(x: float, z: float) -> tuple[int, int]:
             return self._project_unity_map_point(
@@ -1125,6 +1164,7 @@ class AI2ThorVisualSearchDemo:
                     (px + 17, py - 8),
                     f"Target: {object_type}"[:24],
                     fill=(255, 245, 240),
+                    font=map_small_font,
                 )
             target_index += 1
 
@@ -1152,14 +1192,16 @@ class AI2ThorVisualSearchDemo:
             (22, 18),
             f"Unity 3D global map | {self.scene}",
             fill=(245, 248, 252),
+            font=map_font,
         )
         action_text = (
-            f" | next {planned_action}" if planned_action else ""
+            f" | after {planned_action}" if planned_action else ""
         )
         draw.text(
             (22, 38),
             f"heading {heading:.0f} deg{action_text}",
             fill=(100, 240, 220),
+            font=map_small_font,
         )
         return image
 
@@ -1175,6 +1217,8 @@ class AI2ThorVisualSearchDemo:
     ) -> Image.Image:
         image = Image.new("RGB", (520, 520), (245, 247, 250))
         draw = ImageDraw.Draw(image)
+        map_font = load_render_font(14)
+        map_small_font = load_render_font(12)
         draw.rectangle([16, 16, 504, 504], outline=(20, 33, 48), width=4)
         reachable_positions = reachable_positions or []
         agent_path = agent_path or []
@@ -1262,7 +1306,12 @@ class AI2ThorVisualSearchDemo:
             color = (226, 60, 46) if visible else (244, 142, 38)
             draw.ellipse([px - 8, py - 8, px + 8, py + 8], fill=color, outline=(135, 35, 25), width=2)
             if labeled_target == (x, z, label, visible):
-                draw.text((px + 11, py - 8), f"Target: {label}"[:28], fill=(135, 35, 25))
+                draw.text(
+                    (px + 11, py - 8),
+                    f"Target: {label}"[:28],
+                    fill=(135, 35, 25),
+                    font=map_small_font,
+                )
 
         ax, ay = project(
             float(agent_position.get("x", 0.0)),
@@ -1271,19 +1320,31 @@ class AI2ThorVisualSearchDemo:
         heading = float(agent.get("rotation", {}).get("y", 0.0)) % 360.0
         nose, left, right = self._heading_triangle(ax, ay, heading)
         draw.polygon([nose, left, right], fill=(0, 126, 167), outline=(0, 70, 96))
-        draw.text((24, 24), f"AI2-THOR {self.scene} reachable map", fill=(15, 23, 42))
-        action_suffix = f" before {planned_action}" if planned_action else ""
+        draw.text(
+            (24, 24),
+            f"AI2-THOR {self.scene} reachable map",
+            fill=(15, 23, 42),
+            font=map_font,
+        )
+        action_suffix = f" after {planned_action}" if planned_action else ""
         draw.text(
             (24, 44),
             f"Heading {heading:.0f} deg{action_suffix} (0 deg = +Z / up)",
             fill=(55, 65, 78),
+            font=map_small_font,
         )
-        draw.text((24, 64), "gray reachable | teal path | blue robot | red target", fill=(55, 65, 78))
+        draw.text(
+            (24, 64),
+            "gray reachable | teal path | blue robot | red target",
+            fill=(55, 65, 78),
+            font=map_small_font,
+        )
         if best_candidate:
             draw.text(
                 (24, 486),
                 f"Best candidate: {best_candidate.get('label')} {best_candidate.get('confidence')}",
                 fill=(170, 35, 24),
+                font=map_small_font,
             )
         return image
 
@@ -1298,8 +1359,32 @@ class AI2ThorVisualSearchDemo:
     ) -> Image.Image:
         canvas = Image.new("RGB", (1600, 900), (8, 13, 23))
         draw = ImageDraw.Draw(canvas)
-        draw.text((34, 28), f"AI2-THOR x Agent | {self.scene}", fill=(245, 248, 252))
-        draw.text((34, 62), f"Instruction: {instruction}", fill=(180, 195, 210))
+        title_font = load_render_font(24)
+        body_font = load_render_font(18)
+        small_font = load_render_font(16)
+        draw.text(
+            (34, 28),
+            f"AI2-THOR x Agent | {self.scene}",
+            fill=(245, 248, 252),
+            font=title_font,
+        )
+        self._wrapped_text(
+            draw,
+            f"Instruction: {instruction}",
+            34,
+            62,
+            1480,
+            fill=(180, 195, 210),
+            font=body_font,
+            line_height=24,
+            max_lines=1,
+        )
+        draw.text(
+            (34, 92),
+            self._post_action_observation_label(response),
+            fill=(57, 217, 198),
+            font=small_font,
+        )
         canvas.paste(obs.resize((900, 506)), (34, 116))
         canvas.paste(topdown.resize((420, 420)), (980, 116))
         draw.rectangle([34, 116, 934, 622], outline=(57, 217, 198), width=3)
@@ -1307,26 +1392,116 @@ class AI2ThorVisualSearchDemo:
         panel_x = 980
         panel_y = 570
         draw.rounded_rectangle([panel_x, panel_y, 1560, 850], radius=8, fill=(242, 246, 250))
-        draw.text((panel_x + 20, panel_y + 18), f"Step {step_id}", fill=(15, 23, 42))
-        draw.text((panel_x + 20, panel_y + 52), f"Planned action: {response['action']['type']}", fill=(0, 126, 120))
-        draw.text((panel_x + 20, panel_y + 86), f"Confidence: {response['confidence']:.3f}", fill=(190, 45, 35))
-        self._wrapped_text(draw, "Thought: " + response["thought"], panel_x + 20, panel_y + 126, 74, fill=(22, 31, 43))
+        draw.text(
+            (panel_x + 20, panel_y + 18),
+            f"Decision before action | Step {step_id}",
+            fill=(15, 23, 42),
+            font=body_font,
+        )
+        draw.text(
+            (panel_x + 20, panel_y + 52),
+            f"Selected action: {response['action']['type']}",
+            fill=(0, 126, 120),
+            font=body_font,
+        )
+        draw.text(
+            (panel_x + 20, panel_y + 86),
+            f"Confidence: {response['confidence']:.3f}",
+            fill=(190, 45, 35),
+            font=small_font,
+        )
+        self._wrapped_text(
+            draw,
+            "Thought: " + response["thought"],
+            panel_x + 20,
+            panel_y + 126,
+            540,
+            fill=(22, 31, 43),
+            font=small_font,
+            line_height=21,
+            max_lines=7,
+        )
         visible = ", ".join(visible_objects[:8]) or "None"
-        self._wrapped_text(draw, "Visible: " + visible, 34, 656, 110, fill=(220, 230, 242))
+        self._wrapped_text(
+            draw,
+            "Visible: " + visible,
+            34,
+            656,
+            900,
+            fill=(220, 230, 242),
+            font=small_font,
+            line_height=22,
+            max_lines=4,
+        )
         return canvas
 
-    def _wrapped_text(self, draw: ImageDraw.ImageDraw, text: str, x: int, y: int, width: int, fill: tuple[int, int, int]) -> None:
-        line = ""
-        for word in text.split():
-            probe = f"{line} {word}".strip()
-            if len(probe) > width:
-                draw.text((x, y), line, fill=fill)
-                y += 23
-                line = word
+    @staticmethod
+    def _post_action_observation_label(
+        response: dict[str, Any],
+    ) -> str:
+        action = str(response["action"]["type"])
+        if action in {"STOP", "Done", "ASK_CLARIFY"}:
+            return (
+                "Observation after action decision: "
+                f"{action} (no simulator transition)"
+            )
+        execution = response.get("execution")
+        if isinstance(execution, dict):
+            postcondition = execution.get("postcondition")
+            if execution.get("success") is False or (
+                isinstance(postcondition, dict)
+                and postcondition.get("passed") is False
+            ):
+                return f"Observation after action attempt: {action} (failed)"
+        return f"Observation after action: {action}"
+
+    def _wrapped_text(
+        self,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        x: int,
+        y: int,
+        max_width: int,
+        fill: tuple[int, int, int],
+        *,
+        font: ImageFont.ImageFont,
+        line_height: int,
+        max_lines: int,
+    ) -> None:
+        lines: list[str] = []
+        current = ""
+        units = re.findall(
+            r"[A-Za-z0-9_./:+-]+|\s+|.",
+            str(text),
+            flags=re.DOTALL,
+        )
+        for unit in units:
+            if unit == "\n":
+                lines.append(current.rstrip())
+                current = ""
+                continue
+            if unit.isspace():
+                unit = " "
+            candidate = current + unit
+            left, _, right, _ = draw.textbbox(
+                (0, 0),
+                candidate,
+                font=font,
+            )
+            if current and right - left > max_width:
+                lines.append(current.rstrip())
+                current = unit.lstrip()
             else:
-                line = probe
-        if line:
-            draw.text((x, y), line, fill=fill)
+                current = candidate
+        if current:
+            lines.append(current.rstrip())
+
+        visible_lines = lines[:max_lines]
+        if len(lines) > max_lines and visible_lines:
+            visible_lines[-1] = visible_lines[-1].rstrip(" .") + "..."
+        for line in visible_lines:
+            draw.text((x, y), line, fill=fill, font=font)
+            y += line_height
 
     def _write_video(self, frames: list[Path], path: Path) -> None:
         write_browser_compatible_mp4(

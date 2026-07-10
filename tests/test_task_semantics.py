@@ -17,7 +17,18 @@ class TaskSemanticsTests(unittest.TestCase):
             legacy_actions=["ASK_CLARIFY"],
         )
         self.assertFalse(plan.supported)
+        self.assertFalse(plan.is_visual_search)
         self.assertIn("human_or_robot_sitting_pose", plan.unsupported_capabilities)
+        self.assertEqual(plan.action_candidates, ("ASK_CLARIFY",))
+
+    def test_find_sofa_and_sit_is_not_reduced_to_visual_search(self):
+        plan = self.semantics.analyze(
+            "找到房间里的沙发并坐下",
+            mode="default",
+            legacy_actions=["STOP", "ASK_CLARIFY"],
+        )
+        self.assertFalse(plan.supported)
+        self.assertFalse(plan.is_visual_search)
         self.assertEqual(plan.action_candidates, ("ASK_CLARIFY",))
 
     def test_pickup_task_exposes_navigation_and_pickup(self):

@@ -251,6 +251,12 @@ class ModelPlannerTests(unittest.TestCase):
                 )
         self.assertEqual(response.action.type, "ASK_CLARIFY")
         self.assertFalse(response.task_plan["supported"])
+        self.assertFalse(response.task_plan["is_visual_search"])
+        self.assertFalse(response.completion_status["complete"])
+        self.assertEqual(response.fallback_reason, "unsupported_task_capability")
+        self.assertIn("sit-on-furniture", response.action.args["reason"])
+        self.assertIn("任务尚未完成", response.thought)
+        self.assertIn("任务未完成", response.structured_thought["reasoning"])
 
     def test_agent_fallback_when_model_returns_illegal_action(self) -> None:
         """Test agent falls back to rules when model returns illegal action."""

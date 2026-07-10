@@ -239,7 +239,6 @@ class AI2ThorVisualSearchDemo:
             event = reachable_event
             agent_path: list[dict[str, float]] = []
             confirmed_target_steps = 0
-            visual_search_task = self._is_visual_search_task(instruction)
             for step_id in range(max_steps):
                 StreamEventEmitter.raise_if_cancelled(cancel_event)
                 environment_context = self.interaction_resolver.build_context(
@@ -275,6 +274,10 @@ class AI2ThorVisualSearchDemo:
                     )
                 )
                 response_dict = response.to_dict()
+                visual_search_task = self._should_use_visual_search_oracle(
+                    response_dict.get("task_plan"),
+                    instruction,
+                )
                 emitter.emit(
                     "model_decision",
                     step_id=step_id,
@@ -555,6 +558,18 @@ class AI2ThorVisualSearchDemo:
         return any(marker in normalized for marker in search_markers) and not any(
             marker in normalized for marker in manipulation_markers
         )
+
+    def _should_use_visual_search_oracle(
+        self,
+        task_plan: dict[str, Any] | None,
+        instruction: str,
+    ) -> bool:
+        if task_plan:
+            return (
+                task_plan.get("supported") is not False
+                and bool(task_plan.get("is_visual_search"))
+            )
+        return self._is_visual_search_task(instruction)
 
     def _search_action(self, step_id: int) -> str:
         if step_id > 0 and step_id % 4 == 3:

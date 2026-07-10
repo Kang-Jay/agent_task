@@ -169,7 +169,7 @@
     .visual-stage {
       position: relative;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 310px;
+      grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
       gap: 1px;
       background: var(--line);
       min-height: 440px;
@@ -179,13 +179,19 @@
       overflow: hidden;
       background: #020305;
     }
-    .view img, .map-view img {
+    .view img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+    .map-view img {
       width: 100%;
       height: 100%;
       display: block;
       object-fit: contain;
     }
-    .map-view { background: #f5f7fa; }
+    .map-view { background: #05080d; }
     .view-label {
       position: absolute;
       left: 12px;
@@ -649,9 +655,23 @@
         const result = payload.result || {};
         $("video").src = asset(result.video_path) + `?t=${Date.now()}`;
         $("videoState").textContent = "已生成";
-        $("phase").textContent = "completed";
+        const finalStep = steps[steps.length - 1] || {};
+        const verified = Boolean(finalStep.completion_status?.complete);
+        const needsClarification = finalStep.action === "ASK_CLARIFY";
+        $("phase").textContent = verified
+          ? "completed"
+          : (needsClarification ? "needs-input" : "incomplete");
         $("modelBadge").textContent = "模型待机";
-        setStatus(`完成 ${steps.length} 个步骤。录像: ${result.video_path}`, "ok");
+        const completionReason =
+          finalStep.completion_status?.reason ||
+          finalStep.task_plan?.clarification ||
+          "完成条件未通过验证";
+        setStatus(
+          verified
+            ? `任务已验证完成，共 ${steps.length} 个步骤。录像: ${result.video_path}`
+            : `任务未完成：${completionReason}。已记录 ${steps.length} 个步骤。`,
+          verified ? "ok" : "error"
+        );
       } else if (event === "episode_cancelled") {
         $("phase").textContent = "cancelled";
         $("modelBadge").textContent = "模型待机";
@@ -739,8 +759,22 @@
         if (steps.length) renderStep(0);
         $("video").src = asset(data.video_path) + `?t=${Date.now()}`;
         $("videoState").textContent = "已生成";
-        $("phase").textContent = "completed";
-        setStatus(`完成 ${steps.length} 个步骤。录像: ${data.video_path}`, "ok");
+        const finalStep = steps[steps.length - 1] || {};
+        const verified = Boolean(finalStep.completion_status?.complete);
+        const needsClarification = finalStep.action === "ASK_CLARIFY";
+        $("phase").textContent = verified
+          ? "completed"
+          : (needsClarification ? "needs-input" : "incomplete");
+        const completionReason =
+          finalStep.completion_status?.reason ||
+          finalStep.task_plan?.clarification ||
+          "完成条件未通过验证";
+        setStatus(
+          verified
+            ? `任务已验证完成，共 ${steps.length} 个步骤。录像: ${data.video_path}`
+            : `任务未完成：${completionReason}。已记录 ${steps.length} 个步骤。`,
+          verified ? "ok" : "error"
+        );
       } catch (error) {
         if (error.name === "AbortError") {
           $("phase").textContent = "cancelled";

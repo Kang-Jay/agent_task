@@ -12,6 +12,19 @@ from src.task.config import load_config
 
 
 class AI2ThorStructuredThoughtTests(unittest.TestCase):
+    def test_unsupported_compound_task_does_not_use_visual_search_oracle(self):
+        demo = object.__new__(AI2ThorVisualSearchDemo)
+        self.assertFalse(
+            demo._should_use_visual_search_oracle(
+                {
+                    "supported": False,
+                    "is_visual_search": True,
+                    "unsupported_capabilities": ["human_or_robot_sitting_pose"],
+                },
+                "找到房间里的沙发并坐下",
+            )
+        )
+
     def test_non_search_clarification_is_not_overridden_by_search_fallback(self):
         self.assertFalse(
             AI2ThorVisualSearchDemo._should_force_search(

@@ -24,7 +24,7 @@ class TaskPlan:
 
     @property
     def is_visual_search(self) -> bool:
-        return self.task_types == ("visual_search",)
+        return self.supported and self.task_types == ("visual_search",)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

@@ -62,14 +62,7 @@ class EmbodiedSearchAgent:
         )
 
         # Validate action
-        if action.type not in task_plan.action_candidates:
-            action = Action("ASK_CLARIFY", {"reason": f"illegal action blocked: {action.type}"})
-            skill_call = SkillCall(name="ASK_CLARIFY", args={}, preconditions=[], expected_observation="request clarification")
-            planner_source = "rule_fallback"
-            fallback_reason = "illegal_action"
-            model_info["decision_status"] = "rejected_illegal_action"
-
-        if not task_plan.supported and action.type != "ASK_CLARIFY":
+        if not task_plan.supported:
             action = Action(
                 "ASK_CLARIFY",
                 {"reason": task_plan.clarification or "unsupported embodied capability"},
@@ -83,6 +76,12 @@ class EmbodiedSearchAgent:
             planner_source = "rule_fallback"
             fallback_reason = "unsupported_task_capability"
             model_info["decision_status"] = "rejected_unsupported_task"
+        elif action.type not in task_plan.action_candidates:
+            action = Action("ASK_CLARIFY", {"reason": f"illegal action blocked: {action.type}"})
+            skill_call = SkillCall(name="ASK_CLARIFY", args={}, preconditions=[], expected_observation="request clarification")
+            planner_source = "rule_fallback"
+            fallback_reason = "illegal_action"
+            model_info["decision_status"] = "rejected_illegal_action"
 
         completion_status = task_plan.completion_status(
             steps=state.steps,
@@ -121,9 +120,23 @@ class EmbodiedSearchAgent:
         thought = (
             model_summary
             if planner_source == "model_planner" and model_summary
-            else self._build_thought(analysis.scene_summary, action, confidence, hints, done)
+            else self._build_thought(
+                analysis.scene_summary,
+                action,
+                confidence,
+                hints,
+                done,
+                completion_status=completion_status,
+            )
         )
-        structured_thought = self._build_structured_thought(analysis, action, confidence, hints, done)
+        structured_thought = self._build_structured_thought(
+            analysis,
+            action,
+            confidence,
+            hints,
+            done,
+            completion_status=completion_status,
+        )
         if planner_source == "model_planner" and model_summary:
             structured_thought["reasoning"] = model_summary
 
@@ -401,13 +414,41 @@ class EmbodiedSearchAgent:
             return Action("TURN_LEFT", {"angle": self.config.raw["agent"]["default_turn_angle_degrees"]})
         return Action("TURN_RIGHT", {"angle": self.config.raw["agent"]["default_turn_angle_degrees"]})
 
-    def _build_thought(self, scene_summary: str, action: Action, confidence: float, hints: list[str], done: bool) -> str:
+    def _build_thought(
+        self,
+        scene_summary: str,
+        action: Action,
+        confidence: float,
+        hints: list[str],
+        done: bool,
+        *,
+        completion_status: dict[str, object],
+    ) -> str:
         hint_text = "; ".join(hints) if hints else "暂无相关记忆"
-        if done:
+        if action.type == "ASK_CLARIFY":
+            reason = str(
+                action.args.get("reason")
+                or completion_status.get("reason")
+                or "任务需要进一步澄清"
+            )
+            return f"{scene_summary} 任务尚未完成：{reason}"
+        if done and completion_status.get("complete"):
             return f"{scene_summary} 置信度 {confidence:.2f} 已足够高，智能体停止并报告目标。"
+        if done:
+            reason = str(completion_status.get("reason") or "完成条件尚未验证")
+            return f"{scene_summary} 本轮已终止，但任务未验证完成：{reason}"
         return f"{scene_summary} 检索提示: {hint_text}。下一步动作是 {action.type}，因为置信度为 {confidence:.2f}。"
 
-    def _build_structured_thought(self, analysis, action: Action, confidence: float, hints: list[str], done: bool) -> dict[str, str]:
+    def _build_structured_thought(
+        self,
+        analysis,
+        action: Action,
+        confidence: float,
+        hints: list[str],
+        done: bool,
+        *,
+        completion_status: dict[str, object],
+    ) -> dict[str, str]:
         """构建结构化的中文思考输出"""
         # 视觉观察
         best = analysis.best_candidate
@@ -417,8 +458,17 @@ class EmbodiedSearchAgent:
             observation = "当前画面中未检测到明显的目标物体特征，需要继续探索。"
 
         # 推理过程
-        if done:
+        if action.type == "ASK_CLARIFY":
+            reason = str(
+                action.args.get("reason")
+                or completion_status.get("reason")
+                or "任务需要进一步澄清"
+            )
+            reasoning = f"任务未完成，当前仿真能力无法验证所请求的行为：{reason}"
+        elif done and completion_status.get("complete"):
             reasoning = f"目标已确认！置信度 {confidence:.2f} 超过阈值 {self.config.stop_confidence_threshold:.2f}，可以停止搜索。"
+        elif done:
+            reasoning = f"本轮已终止，但完成条件未通过验证：{completion_status.get('reason', '未提供原因')}"
         elif confidence >= self.config.target_visible_threshold:
             reasoning = f"发现疑似目标，但置信度 {confidence:.2f} 还不够高，需要更近距离观察或换个角度。"
         else:

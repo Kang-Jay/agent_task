@@ -825,3 +825,30 @@ Correction:
 
 No production task predicate, action parameter or completion threshold was
 changed to accommodate this failure.
+
+#### Second Remote Phase 5 Attempt
+
+The second attempt selected from the default pose result and failed with:
+
+```text
+RuntimeError: No standing interactable pose is available
+```
+
+The frozen AI2-THOR 5.0 action catalog records the official
+`GetInteractablePoses` parameter:
+
+```text
+standings: bool[] (optional)
+```
+
+Correction:
+
+- the validation query now requests `standings=[True]` from AI2-THOR;
+- the returned pose is still independently checked for
+  `standing=true`;
+- a mocked-controller regression test verifies that the official filter is
+  sent with `maxPoses=64`.
+
+This is a setup-query correction using a catalogued simulator parameter. It
+does not add an Agent action, use `forceAction`, or weaken completion
+verification.

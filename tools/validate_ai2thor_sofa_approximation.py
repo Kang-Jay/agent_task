@@ -47,6 +47,7 @@ def _interactable_pose(controller: Any, object_id: str) -> dict[str, Any]:
     event = controller.step(
         action="GetInteractablePoses",
         objectId=object_id,
+        standings=[True],
         maxPoses=64,
     )
     if not event.metadata.get("lastActionSuccess"):

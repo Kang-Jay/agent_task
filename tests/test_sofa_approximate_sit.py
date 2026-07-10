@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 from tools.validate_ai2thor_sofa_approximation import (
+    _interactable_pose,
     _select_sofa,
     _select_standing_pose,
 )
@@ -55,6 +57,35 @@ class SofaApproximationValidationTests(unittest.TestCase):
             "No standing interactable pose",
         ):
             _select_standing_pose([{"standing": False}])
+
+    def test_interactable_pose_requests_standing_candidates(self) -> None:
+        pose = {
+            "x": 0.0,
+            "y": 0.9,
+            "z": 0.25,
+            "rotation": 0.0,
+            "horizon": 0.0,
+            "standing": True,
+        }
+
+        class FakeController:
+            def __init__(self) -> None:
+                self.kwargs = {}
+
+            def step(self, **kwargs):
+                self.kwargs = kwargs
+                return SimpleNamespace(
+                    metadata={
+                        "lastActionSuccess": True,
+                        "actionReturn": [pose],
+                    }
+                )
+
+        controller = FakeController()
+        selected = _interactable_pose(controller, "Sofa|1")
+        self.assertEqual(selected, pose)
+        self.assertEqual(controller.kwargs["standings"], [True])
+        self.assertEqual(controller.kwargs["maxPoses"], 64)
 
 
 if __name__ == "__main__":

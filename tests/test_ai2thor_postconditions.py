@@ -104,6 +104,144 @@ class AI2ThorPostconditionVerifierTests(unittest.TestCase):
         self.assertTrue(result.checked)
         self.assertFalse(result.passed)
 
+    def test_move_ahead_requires_requested_direction_and_distance(self):
+        correct = self.verifier.verify(
+            action="MoveAhead",
+            args={"moveMagnitude": 0.25},
+            before={
+                "agent": {
+                    "position": {"x": 0.0, "y": 0.9, "z": 0.0},
+                    "rotation": {"y": 0.0},
+                }
+            },
+            after={
+                "agent": {
+                    "position": {"x": 0.0, "y": 0.9, "z": 0.25},
+                    "rotation": {"y": 0.0},
+                }
+            },
+            runtime_success=True,
+        )
+        wrong_direction = self.verifier.verify(
+            action="MoveAhead",
+            args={"moveMagnitude": 0.25},
+            before={
+                "agent": {
+                    "position": {"x": 0.0, "y": 0.9, "z": 0.0},
+                    "rotation": {"y": 0.0},
+                }
+            },
+            after={
+                "agent": {
+                    "position": {"x": 0.25, "y": 0.9, "z": 0.0},
+                    "rotation": {"y": 0.0},
+                }
+            },
+            runtime_success=True,
+        )
+        partial = self.verifier.verify(
+            action="MoveAhead",
+            args={"moveMagnitude": 0.25},
+            before={
+                "agent": {
+                    "position": {"x": 0.0, "y": 0.9, "z": 0.0},
+                    "rotation": {"y": 0.0},
+                }
+            },
+            after={
+                "agent": {
+                    "position": {"x": 0.0, "y": 0.9, "z": 0.1},
+                    "rotation": {"y": 0.0},
+                }
+            },
+            runtime_success=True,
+        )
+
+        self.assertTrue(correct.passed)
+        self.assertFalse(wrong_direction.passed)
+        self.assertFalse(partial.passed)
+
+    def test_rotate_right_rejects_left_rotation(self):
+        correct = self.verifier.verify(
+            action="RotateRight",
+            args={"degrees": 90.0},
+            before={"agent": {"rotation": {"y": 0.0}}},
+            after={"agent": {"rotation": {"y": 90.0}}},
+            runtime_success=True,
+        )
+        wrong_direction = self.verifier.verify(
+            action="RotateRight",
+            args={"degrees": 90.0},
+            before={"agent": {"rotation": {"y": 0.0}}},
+            after={"agent": {"rotation": {"y": 270.0}}},
+            runtime_success=True,
+        )
+
+        self.assertTrue(correct.passed)
+        self.assertFalse(wrong_direction.passed)
+
+    def test_rotate_right_supports_zero_degree_wraparound(self):
+        result = self.verifier.verify(
+            action="RotateRight",
+            args={"degrees": 30.0},
+            before={"agent": {"rotation": {"y": 350.0}}},
+            after={"agent": {"rotation": {"y": 20.0}}},
+            runtime_success=True,
+        )
+
+        self.assertTrue(result.passed)
+
+    def test_look_down_requires_requested_horizon(self):
+        correct = self.verifier.verify(
+            action="LookDown",
+            args={"degrees": 30.0},
+            before={"agent": {"cameraHorizon": 0.0}},
+            after={"agent": {"cameraHorizon": 30.0}},
+            runtime_success=True,
+        )
+        wrong_direction = self.verifier.verify(
+            action="LookDown",
+            args={"degrees": 30.0},
+            before={"agent": {"cameraHorizon": 0.0}},
+            after={"agent": {"cameraHorizon": -30.0}},
+            runtime_success=True,
+        )
+
+        self.assertTrue(correct.passed)
+        self.assertFalse(wrong_direction.passed)
+
+    def test_navigation_fails_closed_when_agent_metadata_is_missing(self):
+        move = self.verifier.verify(
+            action="MoveAhead",
+            args={"moveMagnitude": 0.25},
+            before={
+                "agent": {
+                    "position": {"x": 0.0, "y": 0.9, "z": 0.0},
+                    "rotation": {"y": 0.0},
+                }
+            },
+            after={"agent": {}},
+            runtime_success=True,
+        )
+        rotate = self.verifier.verify(
+            action="RotateRight",
+            args={"degrees": 30.0},
+            before={"agent": {"rotation": {"y": 0.0}}},
+            after={"agent": {}},
+            runtime_success=True,
+        )
+        look = self.verifier.verify(
+            action="LookDown",
+            args={"degrees": 30.0},
+            before={"agent": {"cameraHorizon": 0.0}},
+            after={"agent": {}},
+            runtime_success=True,
+        )
+
+        self.assertFalse(move.passed)
+        self.assertFalse(rotate.passed)
+        self.assertFalse(look.passed)
+
     def test_crouch_requires_explicit_boolean_posture(self):
         missing = self.verifier.verify(
             action="Crouch",

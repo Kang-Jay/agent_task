@@ -12,6 +12,7 @@ from PIL import Image
 from src.simulation.ai2thor_actions import AI2ThorActionCatalog, AI2ThorActionExecutor
 from src.simulation.ai2thor_postconditions import AI2ThorPostconditionVerifier
 from src.simulation.ai2thor_runtime import (
+    DEFAULT_GRID_SIZE_METERS,
     create_controller_safely,
     should_snap_to_grid,
 )
@@ -55,7 +56,7 @@ class AI2ThorSessionManager:
         width: int = 960,
         height: int = 540,
         quality: str = "Low",
-        grid_size: float = 0.25,
+        grid_size: float = DEFAULT_GRID_SIZE_METERS,
         rotate_step_degrees: float = 90.0,
         render_instance_segmentation: bool = True,
     ) -> dict[str, Any]:

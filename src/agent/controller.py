@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from PIL import Image
 
 from src.agent.model_adapter import ModelAdapter
@@ -75,19 +77,54 @@ class EmbodiedSearchAgent:
             step_id=request.step_id,
         ) or execution_plan
 
-        # Try model planner first
-        action, skill_call, planner_source, fallback_reason, planner_confidence, model_info = self._plan_with_model(
-            analysis,
-            vision_confidence,
-            hints,
-            state,
-            request,
-            observation,
-            target_crop,
-            task_plan,
-            execution_plan,
-            completion_status,
+        approach_context = (
+            (request.environment_context or {}).get("approach") or {}
         )
+        approach_action = self._verified_approach_action(
+            task_plan=task_plan,
+            completion_status=completion_status,
+            environment_context=request.environment_context,
+            state=state,
+        )
+        if approach_action is not None:
+            action = approach_action
+            skill_call = SkillCall(
+                name="APPROACH_TARGET",
+                args={
+                    "objectId": approach_context.get("objectId"),
+                    "action": action.to_dict(),
+                },
+                preconditions=[
+                    "target object is grounded",
+                    "AI2-THOR returned a complete path to an interactable pose",
+                ],
+                expected_observation=(
+                    "agent pose advances toward the verified target "
+                    "interaction pose"
+                ),
+            )
+            planner_source = "simulator_oracle"
+            fallback_reason = "verified_approach_navigation"
+            planner_confidence = None
+            model_info = {
+                "status": "skill_planner",
+                "skill": "APPROACH_TARGET",
+                "vision_input_used": False,
+                "path_status": approach_context.get("path_status"),
+            }
+        else:
+            action, skill_call, planner_source, fallback_reason, planner_confidence, model_info = self._plan_with_model(
+                analysis,
+                vision_confidence,
+                hints,
+                state,
+                request,
+                observation,
+                target_crop,
+                task_plan,
+                execution_plan,
+                completion_status,
+            )
         confidence = (
             min(vision_confidence, planner_confidence)
             if planner_source == "model_planner" and planner_confidence is not None
@@ -425,7 +462,9 @@ class EmbodiedSearchAgent:
             "terminal_actions": ["STOP", "Done", "ASK_CLARIFY"],
             "task_plan": task_plan.to_dict(),
             "execution_plan": execution_plan.to_dict(),
-            "environment_context": request.environment_context or {},
+            "environment_context": self._model_environment_context(
+                request.environment_context
+            ),
             "completion_status": completion_status,
             "current_step": request.step_id,
             "max_steps": self.config.max_steps,
@@ -544,7 +583,9 @@ class EmbodiedSearchAgent:
                         "instruction": request.instruction,
                         "observation_summary": analysis.scene_summary,
                         "task_contract": task_plan.to_dict(),
-                        "environment_context": request.environment_context or {},
+                        "environment_context": self._model_environment_context(
+                            request.environment_context
+                        ),
                         "observation_image": image_to_data_url(observation),
                         "target_crop": (
                             image_to_data_url(target_crop)
@@ -617,6 +658,127 @@ class EmbodiedSearchAgent:
         if len(state.steps) % 4 == 2:
             return Action("TURN_LEFT", {"angle": self.config.raw["agent"]["default_turn_angle_degrees"]})
         return Action("TURN_RIGHT", {"angle": self.config.raw["agent"]["default_turn_angle_degrees"]})
+
+    @staticmethod
+    def _verified_approach_action(
+        *,
+        task_plan: TaskPlan,
+        completion_status: dict,
+        environment_context: dict | None,
+        state,
+    ) -> Action | None:
+        if (
+            task_plan.completion_mode != "approximate_sit"
+            or completion_status.get("approach_verified")
+        ):
+            return None
+        context = environment_context or {}
+        approach = context.get("approach") or {}
+        if (
+            not isinstance(approach, dict)
+            or approach.get("source") != "ai2thor_interactable_pose"
+            or approach.get("path_status")
+            not in {"PathComplete", "PoseAlignment"}
+        ):
+            return None
+        object_id = str(approach.get("objectId") or "")
+        if (
+            not object_id
+            or object_id
+            not in task_plan.matching_target_object_ids(context)
+        ):
+            return None
+        payload = approach.get("recommended_action")
+        if not isinstance(payload, dict):
+            return None
+        action_type = str(payload.get("type") or "")
+        allowed_by_status = {
+            "PathComplete": {
+                "MOVE_FORWARD",
+                "TURN_LEFT",
+                "TURN_RIGHT",
+            },
+            "PoseAlignment": {
+                "TURN_LEFT",
+                "TURN_RIGHT",
+                "LOOK_UP",
+                "LOOK_DOWN",
+            },
+        }
+        if (
+            action_type not in task_plan.action_candidates
+            or action_type
+            not in allowed_by_status[str(approach["path_status"])]
+        ):
+            return None
+        args = payload.get("args")
+        parameter_by_action = {
+            "MOVE_FORWARD": "distance",
+            "TURN_LEFT": "angle",
+            "TURN_RIGHT": "angle",
+            "LOOK_UP": "angle",
+            "LOOK_DOWN": "angle",
+        }
+        parameter = parameter_by_action[action_type]
+        if not isinstance(args, dict) or set(args) != {parameter}:
+            return None
+        value = args.get(parameter)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) <= 0.0
+        ):
+            return None
+        action = Action(
+            action_type,
+            {parameter: float(value)},
+        )
+        navigation_actions = {
+            "MOVE_FORWARD",
+            "MOVE_BACK",
+            "MOVE_LEFT",
+            "MOVE_RIGHT",
+            "TURN_LEFT",
+            "TURN_RIGHT",
+            "LOOK_UP",
+            "LOOK_DOWN",
+        }
+        for step in reversed(state.steps[-4:]):
+            previous_action = (
+                step.get("executed_action")
+                or step.get("action")
+                or {}
+            )
+            if (
+                step.get("action_success") is True
+                and previous_action.get("type") in navigation_actions
+            ):
+                break
+            if (
+                step.get("action_success") is False
+                and previous_action.get("type") == action.type
+                and previous_action.get("args") == action.args
+            ):
+                return None
+        return action
+
+    @staticmethod
+    def _model_environment_context(
+        environment_context: dict | None,
+    ) -> dict:
+        context = dict(environment_context or {})
+        approach = context.get("approach")
+        if isinstance(approach, dict):
+            sanitized_approach = dict(approach)
+            for field in (
+                "matched_pose",
+                "target_pose",
+                "recommended_action",
+            ):
+                sanitized_approach.pop(field, None)
+            context["approach"] = sanitized_approach
+        return context
 
     def _continue_approximate_sit(
         self,

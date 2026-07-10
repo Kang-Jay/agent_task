@@ -73,11 +73,7 @@ class TaskPlan:
             if math.isfinite(distance) and distance >= 0.0:
                 target_distances.append(distance)
         target_distance = min(target_distances, default=None)
-        target_object_ids = {
-            str(item.get("objectId") or item.get("name") or "")
-            for item in matching_targets
-            if item.get("objectId") or item.get("name")
-        }
+        target_object_ids = self.matching_target_object_ids(context)
         approach_evidence = context.get("approach") or {}
         approach_object_id = str(approach_evidence.get("objectId") or "")
         approach_verified = (
@@ -191,6 +187,19 @@ class TaskPlan:
             "approach_source": approach_source,
             "agent_is_standing": agent_is_standing,
             "subgoal_progress": subgoal_progress,
+        }
+
+    def matching_target_object_ids(
+        self,
+        environment_context: dict[str, Any] | None,
+    ) -> set[str]:
+        context = environment_context or {}
+        return {
+            str(item.get("objectId") or item.get("name") or "")
+            for item in context.get("objects", [])
+            if isinstance(item, dict)
+            and self._matches_instruction_target(item)
+            and (item.get("objectId") or item.get("name"))
         }
 
     def _matches_instruction_target(self, item: dict[str, Any]) -> bool:

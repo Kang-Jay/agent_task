@@ -373,6 +373,278 @@ class ModelPlannerTests(unittest.TestCase):
         )
         self.assertFalse(response.done)
 
+    def test_agent_uses_verified_approach_navigation_skill(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        image_path = (
+            self.config.image_dir / "ep_red_cup_visible_000.png"
+        )
+        response = agent.step(
+            AgentRequest(
+                session_id="test-approach-skill",
+                instruction="找到沙发并坐下",
+                observation_image=str(image_path),
+                step_id=0,
+                environment_context={
+                    "agent": {"isStanding": True},
+                    "objects": [
+                        {
+                            "objectId": "Sofa|1",
+                            "objectType": "Sofa",
+                            "visible": True,
+                        }
+                    ],
+                    "approach": {
+                        "verified": False,
+                        "objectId": "Sofa|1",
+                        "source": "ai2thor_interactable_pose",
+                        "path_status": "PathComplete",
+                        "recommended_action": {
+                            "type": "TURN_RIGHT",
+                            "args": {"angle": 90.0},
+                        },
+                    },
+                },
+            )
+        )
+
+        self.assertEqual(response.action.type, "TURN_RIGHT")
+        self.assertEqual(response.action.args, {"angle": 90.0})
+        self.assertEqual(response.planner_source, "simulator_oracle")
+        self.assertEqual(
+            response.fallback_reason,
+            "verified_approach_navigation",
+        )
+        self.assertEqual(response.skill_call.name, "APPROACH_TARGET")
+
+    def test_agent_rejects_partial_approach_path(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        image_path = (
+            self.config.image_dir / "ep_red_cup_visible_000.png"
+        )
+        response = agent.step(
+            AgentRequest(
+                session_id="test-partial-approach-path",
+                instruction="找到沙发并坐下",
+                observation_image=str(image_path),
+                step_id=0,
+                environment_context={
+                    "agent": {"isStanding": True},
+                    "objects": [
+                        {
+                            "objectId": "Sofa|1",
+                            "objectType": "Sofa",
+                            "visible": True,
+                        }
+                    ],
+                    "approach": {
+                        "verified": False,
+                        "objectId": "Sofa|1",
+                        "source": "ai2thor_interactable_pose",
+                        "path_status": "PathPartial",
+                        "recommended_action": {
+                            "type": "MOVE_FORWARD",
+                            "args": {"distance": 0.25},
+                        },
+                    },
+                },
+            )
+        )
+
+        self.assertNotEqual(
+            response.planner_source,
+            "simulator_oracle",
+        )
+
+    def test_agent_rejects_approach_for_wrong_target(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        image_path = (
+            self.config.image_dir / "ep_red_cup_visible_000.png"
+        )
+        response = agent.step(
+            AgentRequest(
+                session_id="test-wrong-approach-target",
+                instruction="找到沙发并坐下",
+                observation_image=str(image_path),
+                step_id=0,
+                environment_context={
+                    "agent": {"isStanding": True},
+                    "objects": [
+                        {
+                            "objectId": "Sofa|1",
+                            "objectType": "Sofa",
+                            "visible": True,
+                        }
+                    ],
+                    "approach": {
+                        "verified": False,
+                        "objectId": "Chair|1",
+                        "source": "ai2thor_interactable_pose",
+                        "path_status": "PathComplete",
+                        "recommended_action": {
+                            "type": "MOVE_FORWARD",
+                            "args": {"distance": 0.25},
+                        },
+                    },
+                },
+            )
+        )
+
+        self.assertNotEqual(
+            response.planner_source,
+            "simulator_oracle",
+        )
+
+    def test_agent_rejects_nonfinite_approach_argument(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        image_path = (
+            self.config.image_dir / "ep_red_cup_visible_000.png"
+        )
+        response = agent.step(
+            AgentRequest(
+                session_id="test-nonfinite-approach-argument",
+                instruction="找到沙发并坐下",
+                observation_image=str(image_path),
+                step_id=0,
+                environment_context={
+                    "agent": {"isStanding": True},
+                    "objects": [
+                        {
+                            "objectId": "Sofa|1",
+                            "objectType": "Sofa",
+                            "visible": True,
+                        }
+                    ],
+                    "approach": {
+                        "verified": False,
+                        "objectId": "Sofa|1",
+                        "source": "ai2thor_interactable_pose",
+                        "path_status": "PathComplete",
+                        "recommended_action": {
+                            "type": "MOVE_FORWARD",
+                            "args": {"distance": float("nan")},
+                        },
+                    },
+                },
+            )
+        )
+
+        self.assertNotEqual(
+            response.planner_source,
+            "simulator_oracle",
+        )
+
+    def test_failed_approach_action_is_not_repeated_as_oracle(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        task_plan = agent.task_semantics.analyze(
+            "找到沙发并坐下",
+            mode="default",
+            legacy_actions=self.config.allowed_actions,
+        )
+        context = {
+            "objects": [
+                {
+                    "objectId": "Sofa|1",
+                    "objectType": "Sofa",
+                    "visible": True,
+                }
+            ],
+            "approach": {
+                "verified": False,
+                "objectId": "Sofa|1",
+                "source": "ai2thor_interactable_pose",
+                "path_status": "PathComplete",
+                "recommended_action": {
+                    "type": "MOVE_FORWARD",
+                    "args": {"distance": 0.25},
+                },
+            },
+        }
+        state = Mock(
+            steps=[
+                {
+                    "action_success": False,
+                    "executed_action": {
+                        "type": "MOVE_FORWARD",
+                        "args": {"distance": 0.25},
+                    },
+                },
+                {
+                    "action_success": True,
+                    "executed_action": {
+                        "type": "INSPECT",
+                        "args": {},
+                    },
+                },
+            ]
+        )
+
+        action = agent._verified_approach_action(
+            task_plan=task_plan,
+            completion_status={"approach_verified": False},
+            environment_context=context,
+            state=state,
+        )
+
+        self.assertIsNone(action)
+
+    def test_model_context_removes_oracle_navigation_payload(self) -> None:
+        context = {
+            "objects": [{"objectId": "Sofa|1"}],
+            "approach": {
+                "verified": False,
+                "objectId": "Sofa|1",
+                "source": "ai2thor_interactable_pose",
+                "path_status": "PathComplete",
+                "target_pose": {"x": 1.0, "z": 2.0},
+                "matched_pose": {"x": 1.0, "z": 2.0},
+                "recommended_action": {
+                    "type": "MOVE_FORWARD",
+                    "args": {"distance": 0.25},
+                },
+            },
+        }
+
+        sanitized = EmbodiedSearchAgent._model_environment_context(
+            context
+        )
+
+        self.assertEqual(sanitized["objects"], context["objects"])
+        self.assertEqual(
+            sanitized["approach"]["path_status"],
+            "PathComplete",
+        )
+        self.assertNotIn(
+            "target_pose",
+            sanitized["approach"],
+        )
+        self.assertNotIn(
+            "matched_pose",
+            sanitized["approach"],
+        )
+        self.assertNotIn(
+            "recommended_action",
+            sanitized["approach"],
+        )
+        self.assertIn(
+            "recommended_action",
+            context["approach"],
+        )
+
     def test_agent_fallback_when_model_returns_illegal_action(self) -> None:
         """Test agent falls back to rules when model returns illegal action."""
         agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))

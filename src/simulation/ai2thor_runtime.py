@@ -5,6 +5,7 @@ from typing import Any
 
 
 GRID_ALIGNED_ROTATIONS = (0.0, 90.0, 180.0, 270.0)
+DEFAULT_GRID_SIZE_METERS = 0.25
 
 
 def is_grid_aligned_rotation(rotate_step_degrees: float) -> bool:

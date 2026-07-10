@@ -25,6 +25,7 @@ from src.simulation.ai2thor_interactions import (
 )
 from src.simulation.ai2thor_postconditions import AI2ThorPostconditionVerifier
 from src.simulation.ai2thor_runtime import (
+    DEFAULT_GRID_SIZE_METERS,
     create_controller_safely,
     should_snap_to_grid,
 )
@@ -212,7 +213,7 @@ class AI2ThorVisualSearchDemo:
                 width=960,
                 height=540,
                 quality="Low",
-                gridSize=0.25,
+                gridSize=DEFAULT_GRID_SIZE_METERS,
                 rotateStepDegrees=rotate_step_degrees,
                 snapToGrid=should_snap_to_grid(
                     mode=self.agent_mode,

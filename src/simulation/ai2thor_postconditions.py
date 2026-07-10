@@ -41,7 +41,14 @@ class AI2ThorPostconditionVerifier:
 
         if action in {"Pass", "Done"}:
             return self._result(action, True, "control action completed", {})
-        if action in {"MoveAhead", "MoveBack", "MoveLeft", "MoveRight", "MoveRelative", "FlyAhead", "FlyBack", "FlyLeft", "FlyRight", "FlyUp", "FlyDown", "FlyTo"}:
+        if action in {"MoveAhead", "MoveBack", "MoveLeft", "MoveRight"}:
+            return self._verify_planar_move(
+                action=action,
+                args=args,
+                before=before,
+                after=after,
+            )
+        if action in {"MoveRelative", "FlyAhead", "FlyBack", "FlyLeft", "FlyRight", "FlyUp", "FlyDown", "FlyTo"}:
             before_position = self._agent_position(before)
             after_position = self._agent_position(after)
             changed = self._distance(before_position, after_position) > self.POSITION_EPSILON
@@ -51,7 +58,14 @@ class AI2ThorPostconditionVerifier:
                 "agent position changed" if changed else "agent position did not change",
                 {"before": before_position, "after": after_position},
             )
-        if action in {"RotateLeft", "RotateRight", "RotateAgent", "Rotate"}:
+        if action in {"RotateLeft", "RotateRight"}:
+            return self._verify_cardinal_rotation(
+                action=action,
+                args=args,
+                before=before,
+                after=after,
+            )
+        if action in {"RotateAgent", "Rotate"}:
             before_yaw = self._agent_rotation(before).get("y", 0.0)
             after_yaw = self._agent_rotation(after).get("y", 0.0)
             changed = self._angle_delta(before_yaw, after_yaw) > self.ANGLE_EPSILON
@@ -62,14 +76,68 @@ class AI2ThorPostconditionVerifier:
                 {"before_yaw": before_yaw, "after_yaw": after_yaw},
             )
         if action in {"LookUp", "LookDown"}:
-            before_horizon = float((before.get("agent") or {}).get("cameraHorizon", 0.0))
-            after_horizon = float((after.get("agent") or {}).get("cameraHorizon", 0.0))
-            changed = abs(before_horizon - after_horizon) > self.ANGLE_EPSILON
+            before_horizon = self._finite_agent_horizon(before)
+            after_horizon = self._finite_agent_horizon(after)
+            if before_horizon is None or after_horizon is None:
+                return self._result(
+                    action,
+                    False,
+                    "agent cameraHorizon metadata is unavailable",
+                    {
+                        "before_horizon": before_horizon,
+                        "after_horizon": after_horizon,
+                    },
+                )
+            degrees = self._positive_finite_argument(args, "degrees")
+            if degrees is None:
+                if "degrees" not in args:
+                    changed = (
+                        abs(after_horizon - before_horizon)
+                        > self.ANGLE_EPSILON
+                    )
+                    return self._result(
+                        action,
+                        changed,
+                        (
+                            "camera horizon changed using controller default look angle"
+                            if changed
+                            else "camera horizon did not change using controller default look angle"
+                        ),
+                        {
+                            "before_horizon": before_horizon,
+                            "after_horizon": after_horizon,
+                            "used_controller_default": True,
+                        },
+                    )
+                return self._result(
+                    action,
+                    False,
+                    "look action requires a positive finite degrees argument",
+                    {"args": dict(args)},
+                )
+            expected_horizon = (
+                before_horizon + degrees
+                if action == "LookDown"
+                else before_horizon - degrees
+            )
+            matched = (
+                abs(after_horizon - expected_horizon)
+                <= self.ANGLE_EPSILON
+            )
             return self._result(
                 action,
-                changed,
-                "camera horizon changed" if changed else "camera horizon did not change",
-                {"before_horizon": before_horizon, "after_horizon": after_horizon},
+                matched,
+                (
+                    "camera horizon matched requested look"
+                    if matched
+                    else "camera horizon did not match requested look"
+                ),
+                {
+                    "before_horizon": before_horizon,
+                    "after_horizon": after_horizon,
+                    "expected_horizon": expected_horizon,
+                    "degrees": degrees,
+                },
             )
         if action in {"Crouch", "Stand"}:
             expected = action == "Stand"
@@ -204,6 +272,270 @@ class AI2ThorPostconditionVerifier:
             reason="no semantic postcondition verifier is registered for this action",
             evidence={},
         )
+
+    def _verify_planar_move(
+        self,
+        *,
+        action: str,
+        args: dict[str, Any],
+        before: dict[str, Any],
+        after: dict[str, Any],
+    ) -> PostconditionResult:
+        magnitude = self._positive_finite_argument(
+            args,
+            "moveMagnitude",
+        )
+        if magnitude is None:
+            if "moveMagnitude" not in args:
+                before_position = self._finite_agent_position(before)
+                after_position = self._finite_agent_position(after)
+                if (
+                    before_position is None
+                    or after_position is None
+                ):
+                    return self._result(
+                        action,
+                        False,
+                        "agent pose metadata is unavailable for default move verification",
+                        {
+                            "before": before_position,
+                            "after": after_position,
+                        },
+                    )
+                changed = (
+                    self._distance(
+                        before_position,
+                        after_position,
+                    )
+                    > self.POSITION_EPSILON
+                )
+                return self._result(
+                    action,
+                    changed,
+                    (
+                        "agent position changed using controller default move magnitude"
+                        if changed
+                        else "agent position did not change using controller default move magnitude"
+                    ),
+                    {
+                        "before": before_position,
+                        "after": after_position,
+                        "used_controller_default": True,
+                    },
+                )
+            return self._result(
+                action,
+                False,
+                "move action requires a positive finite moveMagnitude",
+                {"args": dict(args)},
+            )
+        before_position = self._finite_agent_position(before)
+        after_position = self._finite_agent_position(after)
+        before_yaw = self._finite_agent_yaw(before)
+        if (
+            before_position is None
+            or after_position is None
+            or before_yaw is None
+        ):
+            return self._result(
+                action,
+                False,
+                "agent pose metadata is unavailable for move verification",
+                {
+                    "before": before_position,
+                    "after": after_position,
+                },
+            )
+        delta_x = after_position["x"] - before_position["x"]
+        delta_z = after_position["z"] - before_position["z"]
+        yaw = math.radians(before_yaw)
+        forward_x = math.sin(yaw)
+        forward_z = math.cos(yaw)
+        right_x = math.cos(yaw)
+        right_z = -math.sin(yaw)
+        direction_by_action = {
+            "MoveAhead": (forward_x, forward_z),
+            "MoveBack": (-forward_x, -forward_z),
+            "MoveLeft": (-right_x, -right_z),
+            "MoveRight": (right_x, right_z),
+        }
+        expected_x, expected_z = direction_by_action[action]
+        forward_progress = (
+            delta_x * expected_x + delta_z * expected_z
+        )
+        lateral_error = abs(
+            delta_x * expected_z - delta_z * expected_x
+        )
+        actual_distance = math.hypot(delta_x, delta_z)
+        direction_matched = (
+            forward_progress > self.POSITION_EPSILON
+            and lateral_error <= self.POSITION_EPSILON
+        )
+        distance_matched = (
+            abs(actual_distance - magnitude)
+            <= self.POSITION_EPSILON
+        )
+        passed = direction_matched and distance_matched
+        return self._result(
+            action,
+            passed,
+            (
+                "agent movement matched requested direction and distance"
+                if passed
+                else "agent movement did not match requested direction and distance"
+            ),
+            {
+                "before": before_position,
+                "after": after_position,
+                "requested_distance": magnitude,
+                "actual_distance": actual_distance,
+                "forward_progress": forward_progress,
+                "lateral_error": lateral_error,
+            },
+        )
+
+    def _verify_cardinal_rotation(
+        self,
+        *,
+        action: str,
+        args: dict[str, Any],
+        before: dict[str, Any],
+        after: dict[str, Any],
+    ) -> PostconditionResult:
+        degrees = self._positive_finite_argument(args, "degrees")
+        if degrees is None:
+            if "degrees" not in args:
+                before_yaw = self._finite_agent_yaw(before)
+                after_yaw = self._finite_agent_yaw(after)
+                if before_yaw is None or after_yaw is None:
+                    return self._result(
+                        action,
+                        False,
+                        "agent yaw metadata is unavailable for default rotation verification",
+                        {
+                            "before_yaw": before_yaw,
+                            "after_yaw": after_yaw,
+                        },
+                    )
+                changed = (
+                    self._angle_delta(before_yaw, after_yaw)
+                    > self.ANGLE_EPSILON
+                )
+                return self._result(
+                    action,
+                    changed,
+                    (
+                        "agent yaw changed using controller default rotation"
+                        if changed
+                        else "agent yaw did not change using controller default rotation"
+                    ),
+                    {
+                        "before_yaw": before_yaw,
+                        "after_yaw": after_yaw,
+                        "used_controller_default": True,
+                    },
+                )
+            return self._result(
+                action,
+                False,
+                "rotation requires a positive finite degrees argument",
+                {"args": dict(args)},
+            )
+        before_yaw = self._finite_agent_yaw(before)
+        after_yaw = self._finite_agent_yaw(after)
+        if before_yaw is None or after_yaw is None:
+            return self._result(
+                action,
+                False,
+                "agent yaw metadata is unavailable",
+                {
+                    "before_yaw": before_yaw,
+                    "after_yaw": after_yaw,
+                },
+            )
+        expected_yaw = (
+            before_yaw + degrees
+            if action == "RotateRight"
+            else before_yaw - degrees
+        ) % 360.0
+        error = self._angle_delta(after_yaw, expected_yaw)
+        passed = error <= self.ANGLE_EPSILON
+        return self._result(
+            action,
+            passed,
+            (
+                "agent yaw matched requested rotation"
+                if passed
+                else "agent yaw did not match requested rotation"
+            ),
+            {
+                "before_yaw": before_yaw,
+                "after_yaw": after_yaw,
+                "expected_yaw": expected_yaw,
+                "degrees": degrees,
+                "angle_error": error,
+            },
+        )
+
+    @staticmethod
+    def _positive_finite_argument(
+        args: dict[str, Any],
+        name: str,
+    ) -> float | None:
+        value = args.get(name)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+        ):
+            return None
+        number = float(value)
+        if not math.isfinite(number) or number <= 0.0:
+            return None
+        return number
+
+    @staticmethod
+    def _finite_agent_position(
+        metadata: dict[str, Any],
+    ) -> dict[str, float] | None:
+        position = (metadata.get("agent") or {}).get("position")
+        if not isinstance(position, dict):
+            return None
+        try:
+            result = {
+                axis: float(position[axis])
+                for axis in ("x", "y", "z")
+            }
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not all(math.isfinite(value) for value in result.values()):
+            return None
+        return result
+
+    @staticmethod
+    def _finite_agent_yaw(
+        metadata: dict[str, Any],
+    ) -> float | None:
+        rotation = (metadata.get("agent") or {}).get("rotation")
+        if not isinstance(rotation, dict):
+            return None
+        try:
+            yaw = float(rotation["y"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return yaw if math.isfinite(yaw) else None
+
+    @staticmethod
+    def _finite_agent_horizon(
+        metadata: dict[str, Any],
+    ) -> float | None:
+        agent = metadata.get("agent")
+        if not isinstance(agent, dict):
+            return None
+        try:
+            horizon = float(agent["cameraHorizon"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return horizon if math.isfinite(horizon) else None
 
     def _result(
         self,

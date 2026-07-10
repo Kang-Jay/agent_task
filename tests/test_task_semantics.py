@@ -10,26 +10,88 @@ class TaskSemanticsTests(unittest.TestCase):
     def setUpClass(cls):
         cls.semantics = TaskSemantics()
 
-    def test_sit_on_sofa_is_not_falsely_supported(self):
+    def test_sit_on_sofa_is_supported_only_as_approximation(self):
         plan = self.semantics.analyze(
             "走到沙发上并坐下",
             mode="default",
             legacy_actions=["ASK_CLARIFY"],
         )
-        self.assertFalse(plan.supported)
+        self.assertTrue(plan.supported)
         self.assertFalse(plan.is_visual_search)
-        self.assertIn("human_or_robot_sitting_pose", plan.unsupported_capabilities)
-        self.assertEqual(plan.action_candidates, ("ASK_CLARIFY",))
+        self.assertEqual(plan.completion_mode, "approximate_sit")
+        self.assertIn("Crouch", plan.required_actions)
+        self.assertIn("Crouch", plan.action_candidates)
+        self.assertIn("native_sit_on_furniture_state_unavailable", plan.limitations)
 
-    def test_find_sofa_and_sit_is_not_reduced_to_visual_search(self):
+    def test_find_sofa_and_sit_is_not_reduced_to_pure_visual_search(self):
         plan = self.semantics.analyze(
             "找到房间里的沙发并坐下",
             mode="default",
             legacy_actions=["STOP", "ASK_CLARIFY"],
         )
-        self.assertFalse(plan.supported)
+        self.assertTrue(plan.supported)
         self.assertFalse(plan.is_visual_search)
-        self.assertEqual(plan.action_candidates, ("ASK_CLARIFY",))
+        self.assertIn("visual_search", plan.task_types)
+        self.assertIn("navigate_to", plan.task_types)
+        self.assertIn("sit_approximation", plan.task_types)
+        self.assertIn("Crouch", plan.action_candidates)
+
+    def test_visible_sofa_without_distance_is_not_approached(self):
+        plan = self.semantics.analyze("找到沙发并坐下", mode="default")
+        status = plan.completion_status(
+            steps=[],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "agent": {"isStanding": True},
+                "objects": [{"objectType": "Sofa", "visible": True}],
+            },
+        )
+        self.assertFalse(status["complete"])
+        self.assertFalse(status["approach_verified"])
+        self.assertEqual(status["outcome"], "in_progress")
+
+    def test_approached_sofa_without_crouch_is_incomplete(self):
+        plan = self.semantics.analyze("找到沙发并坐下", mode="default")
+        status = plan.completion_status(
+            steps=[],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "agent": {"isStanding": True},
+                "objects": [
+                    {"objectType": "Sofa", "visible": True, "distance": 1.2}
+                ],
+            },
+        )
+        self.assertFalse(status["complete"])
+        self.assertTrue(status["approach_verified"])
+        self.assertIn("Crouch", status["missing_actions"])
+
+    def test_crouched_near_sofa_is_approximate_success(self):
+        plan = self.semantics.analyze("找到沙发并坐下", mode="default")
+        status = plan.completion_status(
+            steps=[
+                {
+                    "executed_action": {"type": "Crouch"},
+                    "action_success": True,
+                }
+            ],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "agent": {"isStanding": False},
+                "objects": [
+                    {"objectType": "Sofa", "visible": True, "distance": 1.2}
+                ],
+            },
+        )
+        self.assertTrue(status["complete"])
+        self.assertTrue(status["approximate"])
+        self.assertEqual(status["outcome"], "approximate_success")
 
     def test_pickup_task_exposes_navigation_and_pickup(self):
         plan = self.semantics.analyze(

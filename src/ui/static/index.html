@@ -464,6 +464,14 @@
         <div class="trace-label">视觉观察</div>
         <div class="trace-content" id="observation">尚无观察。</div>
       </div>
+      <div class="trace-block" id="clickedObjectPanel" style="display: none; background: #1a2332; border-left: 3px solid #4a9eff;">
+        <div class="trace-label">点击物体参考</div>
+        <div class="trace-content">
+          <div><strong>物体:</strong> <span id="clickedObjectId">-</span></div>
+          <div><strong>属性:</strong> <span id="clickedAffordances">-</span></div>
+          <div><strong>来源:</strong> <span id="closeupSource">-</span></div>
+        </div>
+      </div>
       <div class="trace-block violet">
         <div class="trace-label">决策摘要</div>
         <div class="trace-content" id="reasoning">尚无决策。</div>
@@ -600,6 +608,19 @@
           robot: payload.robot,
           visible_objects: payload.visible_objects
         });
+      } else if (event === "closeup_ready") {
+        const oid = payload.object_id || "unknown";
+        const otype = payload.object_type || "Object";
+        const aff = payload.affordances || {};
+        const source = payload.closeup_source || "unknown";
+        const affordanceLabels = Object.entries(aff)
+          .filter(([k, v]) => v)
+          .map(([k]) => k)
+          .join("·") || "无";
+        $("clickedObjectId").textContent = `${oid} (${otype})`;
+        $("clickedAffordances").textContent = affordanceLabels;
+        $("closeupSource").textContent = source === "third_party_camera" ? "仿真特写" : "回退裁剪";
+        $("clickedObjectPanel").style.display = "block";
       } else if (event === "model_request_started") {
         $("phase").textContent = "model reasoning";
         $("modelBadge").textContent = "模型推理中";

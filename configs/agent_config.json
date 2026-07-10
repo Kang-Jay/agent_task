@@ -42,6 +42,15 @@
     "center_prior_weight": 0.10,
     "min_candidate_area_ratio": 0.015
   },
+  "closeup": {
+    "camera_width": 640,
+    "camera_height": 480,
+    "field_of_view": 55.0,
+    "camera_height_offset": 0.6,
+    "camera_back_distance": 0.8,
+    "camera_pitch_degrees": 35.0,
+    "min_mask_pixels": 50
+  },
   "memory": {
     "long_term_capacity": 200,
     "negative_memory_capacity": 80,

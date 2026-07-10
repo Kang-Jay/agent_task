@@ -103,6 +103,57 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertTrue(result["vision_input_used"])
         self.assertEqual(result["provider_used"], "openai_compatible")
 
+    def test_kimi_k2_uses_recorded_request_settings(self) -> None:
+        adapter = ModelAdapter(
+            credentials=[
+                ApiCredential(
+                    provider="kimi",
+                    api_key="sk-test",
+                    base_url="https://api.moonshot.cn/v1",
+                    model="kimi-k2.6",
+                )
+            ]
+        )
+        client = Mock()
+        completion = Mock()
+        completion.choices = [
+            Mock(
+                message=Mock(
+                    content=(
+                        '{"thought_summary":"inspect","action":{"type":"INSPECT",'
+                        '"args":{}},"confidence":0.6}'
+                    )
+                )
+            )
+        ]
+        client.chat.completions.create.return_value = completion
+        openai_constructor = Mock(return_value=client)
+
+        with patch("src.agent.model_adapter.OpenAI", openai_constructor):
+            result = adapter.plan_action(
+                {
+                    "instruction": "Find the television",
+                    "observation_summary": "Room view",
+                    "confidence": 0.2,
+                    "allowed_actions": ["INSPECT", "TURN_RIGHT"],
+                    "terminal_actions": [],
+                    "current_step": 0,
+                    "max_steps": 20,
+                    "observation_image": "data:image/png;base64,robot-rgb",
+                }
+            )
+
+        self.assertEqual(
+            openai_constructor.call_args.kwargs["timeout"],
+            90.0,
+        )
+        request = client.chat.completions.create.call_args.kwargs
+        self.assertEqual(request["model"], "kimi-k2.6")
+        self.assertEqual(request["temperature"], 1.0)
+        self.assertEqual(request["max_tokens"], 2048)
+        self.assertEqual(result["provider_used"], "kimi")
+        self.assertTrue(result["vision_input_used"])
+
     def test_deepseek_text_planner_does_not_claim_vision_input(self) -> None:
         adapter = ModelAdapter(
             credentials=[
@@ -231,11 +282,11 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertEqual(response.action.type, "OpenObject")
         self.assertEqual(response.action.args["objectId"], "Cabinet|1")
 
-    def test_agent_rejects_unverifiable_sit_task(self) -> None:
+    def test_agent_replans_premature_done_for_sit_approximation(self) -> None:
         agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))
         mock_result = {
-            "thought_summary": "The sofa is visible.",
-            "action": {"type": "INSPECT", "args": {}},
+            "thought_summary": "The sofa is visible, so the task may be done.",
+            "action": {"type": "Done", "args": {}},
             "confidence": 0.9,
         }
         with patch.object(agent.model_adapter, "plan_action", return_value=mock_result):
@@ -247,14 +298,27 @@ class ModelPlannerTests(unittest.TestCase):
                         instruction="走到沙发上并坐下",
                         observation_image=str(image_path),
                         step_id=0,
+                        environment_context={
+                            "agent": {"isStanding": True},
+                            "objects": [
+                                {
+                                    "objectId": "Sofa|1",
+                                    "objectType": "Sofa",
+                                    "visible": True,
+                                    "distance": 1.2,
+                                }
+                            ],
+                        },
                     )
                 )
-        self.assertEqual(response.action.type, "ASK_CLARIFY")
-        self.assertFalse(response.task_plan["supported"])
+        self.assertEqual(response.action.type, "Crouch")
+        self.assertTrue(response.task_plan["supported"])
         self.assertFalse(response.task_plan["is_visual_search"])
         self.assertFalse(response.completion_status["complete"])
-        self.assertEqual(response.fallback_reason, "unsupported_task_capability")
-        self.assertIn("sit-on-furniture", response.action.args["reason"])
+        self.assertEqual(response.completion_status["outcome"], "in_progress")
+        self.assertEqual(response.fallback_reason, "premature_done_replanned")
+        self.assertFalse(response.done)
+        self.assertIn("approximation", response.action.args["reason"])
         self.assertIn("任务尚未完成", response.thought)
         self.assertIn("任务未完成", response.structured_thought["reasoning"])
 

@@ -6,7 +6,15 @@ from __future__ import annotations
 
 import unittest
 
-from src.types.schema import Action, AgentResponse, SkillCall, ObservationAnalysis, Candidate
+from src.types.schema import (
+    Action,
+    AgentRequest,
+    AgentResponse,
+    ClickedObjectBinding,
+    SkillCall,
+    ObservationAnalysis,
+    Candidate,
+)
 
 
 class SchemaTests(unittest.TestCase):
@@ -180,6 +188,73 @@ class SchemaTests(unittest.TestCase):
 
         # Creating SkillCall without name should fail at runtime
         # (caught by type checker at dev time)
+
+
+class ClickedObjectBindingTests(unittest.TestCase):
+    """Test ClickedObjectBinding structure and serialization (ChangeRecord 10016)."""
+
+    def test_full_serialization(self) -> None:
+        binding = ClickedObjectBinding(
+            object_id="Television|+00.00|+00.50|+01.00",
+            object_type="Television",
+            affordances={"pickupable": False, "toggleable": True},
+            closeup_source="third_party_camera",
+            closeup_bbox=[10, 20, 110, 140],
+            world_position={"x": 0.0, "y": 0.5, "z": 1.0},
+        )
+        result = binding.to_dict()
+        self.assertEqual(result["object_id"], "Television|+00.00|+00.50|+01.00")
+        self.assertEqual(result["object_type"], "Television")
+        self.assertEqual(result["affordances"], {"pickupable": False, "toggleable": True})
+        self.assertEqual(result["closeup_source"], "third_party_camera")
+        self.assertEqual(result["closeup_bbox"], [10, 20, 110, 140])
+        self.assertEqual(result["world_position"], {"x": 0.0, "y": 0.5, "z": 1.0})
+
+    def test_minimal_defaults(self) -> None:
+        binding = ClickedObjectBinding(object_id="Box|1", object_type="Box")
+        result = binding.to_dict()
+        self.assertEqual(result["object_id"], "Box|1")
+        self.assertEqual(result["object_type"], "Box")
+        self.assertEqual(result["affordances"], {})
+        self.assertEqual(result["closeup_source"], "")
+        self.assertIsNone(result["closeup_bbox"])
+        self.assertIsNone(result["world_position"])
+
+    def test_to_dict_key_completeness(self) -> None:
+        binding = ClickedObjectBinding(object_id="X|1", object_type="X")
+        expected_keys = {
+            "object_id",
+            "object_type",
+            "affordances",
+            "closeup_source",
+            "closeup_bbox",
+            "world_position",
+        }
+        self.assertEqual(set(binding.to_dict().keys()), expected_keys)
+
+
+class AgentRequestClickFieldTests(unittest.TestCase):
+    """Test AgentRequest new clicked_object_id field (ChangeRecord 10016)."""
+
+    def test_clicked_object_id_defaults_none(self) -> None:
+        request = AgentRequest(
+            session_id="s",
+            instruction="find tv",
+            observation_image="img.png",
+        )
+        self.assertIsNone(request.clicked_object_id)
+        # Existing click fields remain intact and independent
+        self.assertIsNone(request.clicked_point)
+        self.assertIsNone(request.target_crop)
+
+    def test_clicked_object_id_accepts_value(self) -> None:
+        request = AgentRequest(
+            session_id="s",
+            instruction="find tv",
+            observation_image="img.png",
+            clicked_object_id="Television|+00.00|+00.50|+01.00",
+        )
+        self.assertEqual(request.clicked_object_id, "Television|+00.00|+00.50|+01.00")
 
 
 if __name__ == "__main__":

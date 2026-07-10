@@ -9,6 +9,7 @@ from typing import Any
 
 from src.memory.episodic_store import EpisodicMemoryStore
 from src.task.config import AgentConfig
+from src.types.schema import TaskExecutionPlan
 
 
 MEMORY_NAMESPACE = "visual_search"
@@ -22,6 +23,7 @@ class SessionState:
     negative_memory: list[str] = field(default_factory=list)
     explored_regions: dict[str, int] = field(default_factory=dict)
     retrieved_memories: list[dict[str, Any]] = field(default_factory=list)
+    execution_plan: TaskExecutionPlan | None = None
 
     def recent_steps(self, window: int) -> list[dict[str, Any]]:
         return self.steps[-window:]
@@ -90,6 +92,94 @@ class SessionMemory:
             exclude_session_id=state.session_id,
         )
         return list(state.retrieved_memories)
+
+    def set_execution_plan(
+        self,
+        state: SessionState,
+        plan: TaskExecutionPlan,
+    ) -> TaskExecutionPlan:
+        with self._lock:
+            if state.execution_plan is not None:
+                if state.execution_plan.plan_id != plan.plan_id:
+                    raise ValueError("session already has a different execution plan")
+                return state.execution_plan
+            state.execution_plan = plan
+            if self.config.raw["memory"]["persist_traces"]:
+                self._persist_trace(state)
+            return plan
+
+    def update_execution_plan(
+        self,
+        state: SessionState,
+        completion_status: dict[str, Any],
+        *,
+        step_id: int,
+    ) -> TaskExecutionPlan | None:
+        with self._lock:
+            plan = state.execution_plan
+            if plan is None:
+                return None
+
+            explicit_progress = {
+                str(item.get("id")): item
+                for item in completion_status.get("subgoal_progress", [])
+                if item.get("id")
+            }
+            successful_actions = set(completion_status.get("successful_actions", []))
+            target_located = bool(completion_status.get("target_located"))
+            approach_verified = bool(completion_status.get("approach_verified"))
+
+            for subgoal in plan.subgoals:
+                progress = explicit_progress.get(subgoal.id)
+                completed = bool(progress and progress.get("complete"))
+                evidence = progress.get("evidence") if progress else None
+                if subgoal.id == "locate_target":
+                    completed = target_located
+                    evidence = evidence or (
+                        "target grounded by visual or simulator evidence"
+                        if completed
+                        else None
+                    )
+                elif subgoal.id == "approach_target":
+                    completed = approach_verified
+                    evidence = evidence or (
+                        f"AI2-THOR target distance={completion_status.get('target_distance')}m"
+                        if completed
+                        else None
+                    )
+                elif subgoal.id.startswith("execute_"):
+                    action_name = subgoal.id[len("execute_"):]
+                    completed = completed or any(
+                        action.lower() == action_name for action in successful_actions
+                    )
+                    evidence = evidence or (
+                        f"{action_name} execution verified"
+                        if completed
+                        else None
+                    )
+                if completed:
+                    subgoal.status = "completed"
+                    subgoal.evidence = str(evidence) if evidence is not None else None
+                else:
+                    subgoal.status = "pending"
+                    subgoal.evidence = None
+
+            first_incomplete = next(
+                (subgoal for subgoal in plan.subgoals if subgoal.status != "completed"),
+                None,
+            )
+            if completion_status.get("complete"):
+                plan.status = "completed"
+                plan.current_subgoal_id = None
+            else:
+                plan.status = "in_progress"
+                plan.current_subgoal_id = first_incomplete.id if first_incomplete else None
+                if first_incomplete is not None:
+                    first_incomplete.status = "in_progress"
+            plan.last_updated_step = step_id
+            if self.config.raw["memory"]["persist_traces"]:
+                self._persist_trace(state)
+            return plan
 
     def commit_execution(
         self,
@@ -219,10 +309,16 @@ class SessionMemory:
             return "No prior steps in this session."
         last = state.steps[-1]
         explored = ", ".join(f"{region}:{count}" for region, count in sorted(state.explored_regions.items()))
+        current_subgoal = (
+            state.execution_plan.current_subgoal_id
+            if state.execution_plan is not None
+            else None
+        )
         return (
             f"{len(state.steps)} steps recorded. Last action={last.get('action', {}).get('type')}; "
             f"explored regions={explored or 'none'}; negative memories={len(state.negative_memory)}; "
-            f"recalled episodes={len(state.retrieved_memories)}."
+            f"recalled episodes={len(state.retrieved_memories)}; "
+            f"current subgoal={current_subgoal or 'none'}."
         )
 
     def search_map(self, state: SessionState) -> dict[str, Any]:
@@ -274,6 +370,11 @@ class SessionMemory:
             "negative_memory": state.negative_memory,
             "explored_regions": state.explored_regions,
             "retrieved_memories": state.retrieved_memories,
+            "execution_plan": (
+                state.execution_plan.to_dict()
+                if state.execution_plan is not None
+                else None
+            ),
         }
 
     def _persist_trace(self, state: SessionState) -> None:
@@ -285,6 +386,11 @@ class SessionMemory:
             "negative_memory": state.negative_memory,
             "explored_regions": state.explored_regions,
             "retrieved_memories": state.retrieved_memories,
+            "execution_plan": (
+                state.execution_plan.to_dict()
+                if state.execution_plan is not None
+                else None
+            ),
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -13,6 +14,9 @@ class TaskPlan:
     task_types: tuple[str, ...]
     required_actions: tuple[str, ...]
     unsupported_capabilities: tuple[str, ...]
+    limitations: tuple[str, ...]
+    completion_mode: str
+    subgoals: tuple[dict[str, Any], ...]
     completion_rule: str
     clarification: str | None
     action_candidates: tuple[str, ...]
@@ -39,6 +43,7 @@ class TaskPlan:
         target_visible: bool,
         confidence: float,
         stop_confidence_threshold: float,
+        environment_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         successful_actions = {
             str((step.get("executed_action") or step.get("action") or {}).get("type"))
@@ -48,20 +53,89 @@ class TaskPlan:
         missing_actions = [
             action for action in self.required_actions if action not in successful_actions
         ]
+        context = environment_context or {}
+        agent_state = context.get("agent") or {}
+        visible_targets = [
+            item
+            for item in context.get("objects", [])
+            if bool(item.get("visible")) and self._matches_instruction_target(item)
+        ]
+        target_visible_in_environment = bool(visible_targets)
+        target_distances: list[float] = []
+        for item in visible_targets:
+            try:
+                distance = float(item["distance"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if math.isfinite(distance) and distance >= 0.0:
+                target_distances.append(distance)
+        target_distance = min(target_distances, default=None)
+        approach_verified = target_visible_in_environment and target_distance is not None
+        agent_is_standing = agent_state.get("isStanding")
+        subgoal_progress: list[dict[str, Any]] = []
+
         if not self.supported:
             complete = False
             reason = "task requests unsupported embodied capabilities"
+        elif self.completion_mode == "approximate_sit":
+            located = target_visible or target_visible_in_environment
+            approached = approach_verified
+            crouch_succeeded = "Crouch" in successful_actions
+            posture_verified = crouch_succeeded and agent_is_standing is False
+            complete = approached and posture_verified
+            if complete:
+                reason = (
+                    "verified crouch-near-target approximation completed; "
+                    "AI2-THOR does not provide a native sit-on-furniture state"
+                )
+            elif not located:
+                reason = "target furniture has not been located"
+            elif not approached:
+                reason = "target furniture is visible but approach proximity is not verified"
+            elif not crouch_succeeded:
+                reason = "target is approached but Crouch has not executed successfully"
+            else:
+                reason = "Crouch executed but the simulator posture change is not verified"
+            subgoal_progress = [
+                {
+                    "id": "locate_target",
+                    "complete": located,
+                    "evidence": "visual or simulator target observation",
+                },
+                {
+                    "id": "approach_target",
+                    "complete": approached,
+                    "evidence": (
+                        f"AI2-THOR visible target distance={target_distance:.3f}m"
+                        if target_distance is not None
+                        else "AI2-THOR did not provide finite target-distance evidence"
+                    ),
+                },
+                {
+                    "id": "execute_crouch",
+                    "complete": crouch_succeeded,
+                    "evidence": "successful Crouch execution",
+                },
+                {
+                    "id": "verify_posture",
+                    "complete": posture_verified,
+                    "evidence": f"agent.isStanding={agent_is_standing}",
+                },
+            ]
         elif self.is_visual_search:
-            complete = target_visible and confidence >= stop_confidence_threshold
+            complete = (
+                (target_visible or target_visible_in_environment)
+                and confidence >= stop_confidence_threshold
+            )
             reason = (
                 "target is visually confirmed"
                 if complete
                 else "target confirmation threshold has not been met"
             )
         elif "navigate_to" in self.task_types:
-            complete = not missing_actions and bool(self.required_actions)
+            complete = approach_verified and not missing_actions
             reason = (
-                "required interaction actions succeeded"
+                "target proximity and required interaction actions are verified"
                 if complete
                 else "navigation proximity must be verified by the environment before termination"
             )
@@ -74,10 +148,43 @@ class TaskPlan:
             )
         return {
             "complete": complete,
+            "outcome": (
+                "approximate_success"
+                if complete and self.completion_mode == "approximate_sit"
+                else "exact_success"
+                if complete
+                else "in_progress"
+            ),
             "reason": reason,
             "successful_actions": sorted(successful_actions),
             "missing_actions": missing_actions,
+            "completion_mode": self.completion_mode,
+            "approximate": self.completion_mode != "exact",
+            "limitations": list(self.limitations),
+            "target_located": target_visible or target_visible_in_environment,
+            "target_visible_in_environment": target_visible_in_environment,
+            "target_distance": target_distance,
+            "approach_verified": approach_verified,
+            "agent_is_standing": agent_is_standing,
+            "subgoal_progress": subgoal_progress,
         }
+
+    def _matches_instruction_target(self, item: dict[str, Any]) -> bool:
+        instruction = self.instruction.lower()
+        object_type = str(item.get("objectType") or item.get("name") or "").lower()
+        aliases = {
+            "sofa": ("sofa", "couch", "沙发"),
+            "armchair": ("armchair", "chair", "扶手椅", "椅子"),
+            "television": ("television", "tv", "电视"),
+            "cup": ("cup", "杯子"),
+            "mug": ("mug", "马克杯", "杯子"),
+            "fridge": ("fridge", "refrigerator", "冰箱"),
+            "cabinet": ("cabinet", "柜子"),
+            "bowl": ("bowl", "碗"),
+            "egg": ("egg", "鸡蛋"),
+        }
+        terms = aliases.get(object_type, (object_type,))
+        return bool(object_type) and any(term in instruction for term in terms)
 
 
 class TaskSemantics:
@@ -129,6 +236,7 @@ class TaskSemantics:
         task_types: list[str] = []
         required_actions: list[str] = []
         unsupported: list[str] = []
+        limitations: list[str] = []
 
         if any(marker in normalized for marker in ("find", "locate", "search", "找到", "寻找", "查找", "搜索")):
             task_types.append("visual_search")
@@ -152,19 +260,35 @@ class TaskSemantics:
                 task_types.append(task_type)
                 required_actions.append(action)
 
-        if any(marker in normalized for marker in ("sit on", "sit down", "坐下", "坐到", "坐在")):
-            unsupported.append("human_or_robot_sitting_pose")
+        sit_requested = any(
+            marker in normalized
+            for marker in ("sit on", "sit down", "坐下", "坐到", "坐在")
+        )
+        if sit_requested:
+            task_types.extend(("navigate_to", "sit_approximation"))
+            required_actions.append("Crouch")
+            limitations.append("native_sit_on_furniture_state_unavailable")
         if not task_types:
             task_types.append("visual_search")
 
         task_types = list(dict.fromkeys(task_types))
         required_actions = list(dict.fromkeys(required_actions))
+        completion_mode = "approximate_sit" if sit_requested else "exact"
         if unsupported:
             clarification = (
                 "Default AI2-THOR agents do not expose a verified sit-on-furniture state. "
                 "Use 'approach the sofa and crouch' only if crouching is an acceptable substitute."
             )
             completion_rule = "unsupported task must not be reported as successful"
+        elif sit_requested:
+            clarification = (
+                "AI2-THOR has no native SitOnObject state. The executable simulation plan "
+                "uses a clearly labeled approach-and-Crouch approximation."
+            )
+            completion_rule = (
+                "locate target, verify simulator proximity, execute Crouch, and verify "
+                "agent.isStanding is false; report the result as an approximation"
+            )
         elif task_types == ["visual_search"]:
             clarification = None
             completion_rule = "target must be visually grounded above the configured stop threshold"
@@ -199,6 +323,40 @@ class TaskSemantics:
         candidate_names.add("Done")
         if unsupported:
             candidate_names = {"ASK_CLARIFY"}
+
+        subgoals: list[dict[str, Any]] = []
+        if "visual_search" in task_types or "navigate_to" in task_types:
+            subgoals.append(
+                {
+                    "id": "locate_target",
+                    "description": "Locate and ground the requested target object",
+                    "success_evidence": "target observation or AI2-THOR object visibility",
+                }
+            )
+        if "navigate_to" in task_types:
+            subgoals.append(
+                {
+                    "id": "approach_target",
+                    "description": "Navigate until AI2-THOR verifies target proximity",
+                    "success_evidence": "matching target is visible in environment metadata",
+                }
+            )
+        for action in required_actions:
+            subgoals.append(
+                {
+                    "id": f"execute_{action.lower()}",
+                    "description": f"Execute {action}",
+                    "success_evidence": f"{action} succeeds in AI2-THOR",
+                }
+            )
+        if sit_requested:
+            subgoals.append(
+                {
+                    "id": "verify_posture",
+                    "description": "Verify the crouched posture near the target furniture",
+                    "success_evidence": "agent.isStanding is false after successful Crouch",
+                }
+            )
 
         action_candidates: list[str] = []
         action_specs: list[dict[str, Any]] = []
@@ -249,6 +407,9 @@ class TaskSemantics:
             task_types=tuple(task_types),
             required_actions=tuple(required_actions),
             unsupported_capabilities=tuple(unsupported),
+            limitations=tuple(limitations),
+            completion_mode=completion_mode,
+            subgoals=tuple(subgoals),
             completion_rule=completion_rule,
             clarification=clarification,
             action_candidates=tuple(action_candidates),

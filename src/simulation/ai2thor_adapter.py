@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -27,6 +27,7 @@ from src.simulation.ai2thor_runtime import (
     create_controller_safely,
     should_snap_to_grid,
 )
+from src.simulation.object_closeup import render_closeup, resolve_clicked_object
 from src.simulation.room_simulator import DemoResult, DemoStep
 from src.simulation.stream_protocol import StreamCancelled, StreamEventEmitter
 from src.simulation.video_encoding import write_browser_compatible_mp4
@@ -151,6 +152,7 @@ class AI2ThorVisualSearchDemo:
         instruction: str,
         max_steps: int = 8,
         clicked_point: list[int] | None = None,
+        clicked_object_id: str | None = None,
         session_id: str = "ai2thor-demo",
         episode_id: str | None = None,
         emit: Callable[[dict[str, Any]], None] | None = None,
@@ -255,8 +257,33 @@ class AI2ThorVisualSearchDemo:
                     visible_objects=self._visible_objects(event.metadata)[:20],
                 )
 
-                # 在第一步传递 clicked_point
+                # 在第一步传递 clicked_point 或 clicked_object，并尝试渲染特写
                 StreamEventEmitter.raise_if_cancelled(cancel_event)
+
+                # Prepare click-based target reference (step 0 only)
+                target_crop_url = None
+                resolved_object_id = None
+                clicked_binding = None
+                if step_id == 0 and (clicked_point or clicked_object_id):
+                    target_crop_url, resolved_object_id, clicked_binding = (
+                        self._prepare_click_target(
+                            controller,
+                            event,
+                            clicked_point=clicked_point,
+                            clicked_object_id=clicked_object_id,
+                        )
+                    )
+                    if clicked_binding:
+                        emitter.emit(
+                            "closeup_ready",
+                            step_id=step_id,
+                            object_id=clicked_binding["object_id"],
+                            object_type=clicked_binding["object_type"],
+                            affordances=clicked_binding["affordances"],
+                            closeup_source=clicked_binding["closeup_source"],
+                            world_position=clicked_binding["world_position"],
+                        )
+
                 emitter.emit(
                     "model_request_started",
                     step_id=step_id,
@@ -269,6 +296,8 @@ class AI2ThorVisualSearchDemo:
                         observation_image=image_to_data_url(obs),
                         step_id=step_id,
                         clicked_point=clicked_point if step_id == 0 else None,
+                        clicked_object_id=resolved_object_id if step_id == 0 else None,
+                        target_crop=target_crop_url if step_id == 0 else None,
                         agent_mode=self.agent_mode,
                         environment_context=environment_context,
                     )
@@ -583,6 +612,46 @@ class AI2ThorVisualSearchDemo:
         action_type: str,
     ) -> bool:
         return visual_search_task and action_type in {"STOP", "Done", "ASK_CLARIFY"}
+
+    def _prepare_click_target(
+        self,
+        controller: Any,
+        event: Any,
+        *,
+        clicked_point: list[int] | None,
+        clicked_object_id: str | None,
+    ) -> tuple[str | None, str | None, dict[str, Any] | None]:
+        """Resolve a first-step click into (target_crop_data_url, object_id, binding_dict).
+
+        Grounds the click to an AI2-THOR object and renders a close-up
+        reference image near it. On any failure returns (None, resolved_id, ...)
+        so the caller falls back to the legacy clicked_point crop path.
+        """
+        x = y = None
+        if clicked_point and len(clicked_point) == 2:
+            x, y = int(clicked_point[0]), int(clicked_point[1])
+        binding = resolve_clicked_object(
+            event,
+            x=x,
+            y=y,
+            object_id=clicked_object_id,
+            structural_types=STRUCTURAL_OBJECTS,
+            min_mask_pixels=int(self.config.raw["closeup"]["min_mask_pixels"]),
+        )
+        if binding is None or binding.world_position is None:
+            return None, clicked_object_id, None
+
+        image, source, bbox = render_closeup(
+            self.action_executor,
+            controller,
+            mode=self.agent_mode,
+            target_position=binding.world_position,
+            config=self.config,
+        )
+        binding = replace(binding, closeup_source=source, closeup_bbox=bbox)
+        if image is None:
+            return None, binding.object_id, binding.to_dict()
+        return image_to_data_url(image), binding.object_id, binding.to_dict()
 
     def _ground_target_from_segmentation(self, event: Any, instruction: str) -> dict[str, Any] | None:
         masks = getattr(event, "instance_masks", None) or {}

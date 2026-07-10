@@ -75,7 +75,7 @@ def _credential_for(provider: str, api_key: str) -> ApiCredential:
             provider="kimi",
             api_key=api_key,
             base_url="https://api.moonshot.cn/v1",
-            model="moonshot-v1-8k-vision-preview",
+            model="kimi-k2.6",
         )
     if "deepseek" in normalized:
         return ApiCredential(provider="deepseek", api_key=api_key, base_url="https://api.deepseek.com/v1", model="deepseek-chat")
@@ -101,6 +101,129 @@ class ModelAdapter:
                 }
                 for credential in self.credentials
             ],
+        }
+
+    def plan_task(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create one global task plan before step-level action planning."""
+        if not self.available():
+            return {
+                "error": "no_credentials",
+                "fallback_reason": "API key not available",
+            }
+
+        system_prompt = """You are an embodied AI2-THOR global task planner.
+Return ONLY valid JSON with these fields:
+- task_summary: one concise sentence
+- ordered_subgoal_ids: every supplied semantic subgoal id exactly once
+- failure_policy: one concise factual recovery policy
+
+Do not add or remove subgoals.
+Do not claim an action already succeeded.
+Respect limitations and approximate completion modes.
+Do not output hidden reasoning."""
+
+        task_contract = payload.get("task_contract", {})
+        prompt = f"""Instruction: {payload.get('instruction', '')}
+Observation Summary: {payload.get('observation_summary', '')}
+Task Contract:
+{json.dumps(task_contract, ensure_ascii=False)}
+AI2-THOR Environment Context:
+{json.dumps(payload.get('environment_context', {}), ensure_ascii=False)}
+
+Order all supplied subgoal ids into a complete executable global plan."""
+        errors: list[str] = []
+        require_vision = bool(payload.get("require_vision", False))
+        for credential in self.credentials:
+            supports_vision = self._supports_vision(credential)
+            if require_vision and not supports_vision:
+                errors.append(
+                    f"{credential.provider}: skipped because visual input is required"
+                )
+                continue
+            try:
+                model_name = credential.model or "gpt-4o-mini"
+                is_thinking_model = self._is_thinking_model(model_name)
+                request_timeout = 90.0 if is_thinking_model else 15.0
+                client = OpenAI(
+                    api_key=credential.api_key,
+                    base_url=credential.base_url,
+                    timeout=request_timeout,
+                )
+                user_content: str | list[dict[str, Any]] = prompt
+                observation_image = payload.get("observation_image")
+                target_crop = payload.get("target_crop")
+                if supports_vision and observation_image:
+                    user_content = [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": observation_image,
+                                "detail": "low",
+                            },
+                        },
+                    ]
+                    if target_crop:
+                        user_content.extend(
+                            [
+                                {
+                                    "type": "text",
+                                    "text": "The next image is the user-selected target reference.",
+                                },
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": target_crop,
+                                        "detail": "low",
+                                    },
+                                },
+                            ]
+                        )
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content},
+                    ],
+                    temperature=1.0 if is_thinking_model else 0.1,
+                    max_tokens=2048 if is_thinking_model else 300,
+                    response_format=(
+                        {"type": "json_object"}
+                        if credential.provider != "deepseek"
+                        else None
+                    ),
+                )
+                result = json.loads(response.choices[0].message.content or "{}")
+                ordered_ids = result.get("ordered_subgoal_ids")
+                if not isinstance(ordered_ids, list) or not all(
+                    isinstance(item, str) and item for item in ordered_ids
+                ):
+                    errors.append(
+                        f"{credential.provider}: invalid ordered_subgoal_ids"
+                    )
+                    continue
+                result["provider_used"] = credential.provider
+                result["model_used"] = model_name
+                result["vision_input_used"] = isinstance(user_content, list)
+                return result
+            except json.JSONDecodeError as exc:
+                errors.append(
+                    f"{credential.provider}: JSON decode error: {str(exc)[:100]}"
+                )
+            except TimeoutError as exc:
+                errors.append(f"{credential.provider}: timeout: {str(exc)[:100]}")
+            except Exception as exc:
+                errors.append(
+                    f"{credential.provider}: {type(exc).__name__}: {str(exc)[:160]}"
+                )
+        return {
+            "error": "all_model_calls_failed",
+            "errors": errors,
+            "fallback_reason": (
+                "No configured vision model completed global task planning"
+                if require_vision
+                else "Global task planning failed"
+            ),
         }
 
     def plan_action(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -164,19 +287,27 @@ Do not output hidden reasoning, only the final short summary."""
                 errors.append(f"{credential.provider}: skipped because visual input is required")
                 continue
             try:
-                client = OpenAI(api_key=credential.api_key, base_url=credential.base_url, timeout=15.0)
+                model_name = credential.model or "gpt-4o-mini"
+                is_thinking_model = self._is_thinking_model(model_name)
+                # Thinking-capable Kimi K2 models (e.g. kimi-k2.6) only accept
+                # temperature=1 and spend many tokens on hidden reasoning, so they
+                # need a much larger max_tokens budget and a longer timeout.
+                request_timeout = 90.0 if is_thinking_model else 15.0
+                client = OpenAI(api_key=credential.api_key, base_url=credential.base_url, timeout=request_timeout)
                 user_content = self._build_user_content(
                     payload,
                     include_images=supports_vision,
                 )
+                temperature = 1.0 if is_thinking_model else 0.1
+                max_tokens = 2048 if is_thinking_model else 300
                 response = client.chat.completions.create(
-                    model=credential.model or "gpt-4o-mini",
+                    model=model_name,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content},
                     ],
-                    temperature=0.1,
-                    max_tokens=300,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
                     response_format={"type": "json_object"} if credential.provider != "deepseek" else None,
                 )
                 content = response.choices[0].message.content or "{}"
@@ -234,6 +365,7 @@ Do not output hidden reasoning, only the final short summary."""
         action_specs = payload.get("action_specs", [])
         environment_context = payload.get("environment_context", {})
         task_plan = payload.get("task_plan", {})
+        execution_plan = payload.get("execution_plan", {})
         completion_status = payload.get("completion_status", {})
         episodic_memories = payload.get("episodic_memories", [])
         episodic_text = "\n".join(
@@ -266,6 +398,8 @@ AI2-THOR Environment Context:
 Terminal Actions: {', '.join(terminal_actions)}
 Task Plan:
 {json.dumps(task_plan, ensure_ascii=False)}
+Persistent Execution Plan:
+{json.dumps(execution_plan, ensure_ascii=False)}
 Completion Status:
 {json.dumps(completion_status, ensure_ascii=False)}
 
@@ -273,6 +407,7 @@ For object interactions, use an exact objectId from AI2-THOR Environment Context
 Never invent an objectId or use an action whose affordance is false.
 If the required object is not visible, reachable, or in the required state, choose a navigation
 or observation action instead of attempting the interaction.
+Act only on the current_subgoal_id in Persistent Execution Plan.
 Plan exactly one next action. Return JSON with thought_summary, task_progress, action, confidence, and stop_reason."""
 
         return prompt
@@ -327,19 +462,33 @@ Plan exactly one next action. Return JSON with thought_summary, task_progress, a
             "env_custom",
         }
 
+    @staticmethod
+    def _is_thinking_model(model_name: str) -> bool:
+        """Kimi K2 native-multimodal models emit hidden reasoning and only
+        accept temperature=1, so they need special request parameters."""
+        normalized = (model_name or "").lower()
+        return normalized.startswith("kimi-k2")
+
     def complete_json(self, system: str, user: str) -> dict[str, Any]:
         errors: list[str] = []
         for credential in self.credentials:
             try:
-                client = OpenAI(api_key=credential.api_key, base_url=credential.base_url)
+                model_name = credential.model or "gpt-4o-mini"
+                is_thinking_model = self._is_thinking_model(model_name)
+                request_timeout = 90.0 if is_thinking_model else None
+                client = OpenAI(
+                    api_key=credential.api_key,
+                    base_url=credential.base_url,
+                    timeout=request_timeout,
+                )
                 response = client.chat.completions.create(
-                    model=credential.model or "gpt-4o-mini",
+                    model=model_name,
                     messages=[
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
-                    temperature=0.1,
-                    max_tokens=220,
+                    temperature=1.0 if is_thinking_model else 0.1,
+                    max_tokens=2048 if is_thinking_model else 220,
                     response_format={"type": "json_object"} if credential.provider != "deepseek" else None,
                 )
                 content = response.choices[0].message.content or "{}"

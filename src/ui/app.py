@@ -29,6 +29,7 @@ class StepPayload(BaseModel):
     step_id: int = 0
     target_crop: str | None = None
     clicked_point: list[int] | None = None
+    clicked_object_id: str | None = None
     agent_mode: str = "default"
     environment_context: dict[str, Any] | None = None
 
@@ -75,6 +76,7 @@ def run_demo(payload: dict[str, Any]) -> dict[str, Any]:
     instruction = payload.get("instruction") or "Find the red cup on the table"
     max_steps = int(payload.get("max_steps") or agent.config.max_steps)
     clicked_point = payload.get("clicked_point")
+    clicked_object_id = payload.get("clicked_object_id")
     session_id = str(payload.get("session_id") or "recorded-demo")
     return RoomSimulator(agent=_fresh_agent()).run_demo(
         instruction=instruction,
@@ -219,6 +221,7 @@ def run_ai2thor_demo(payload: dict[str, Any]) -> dict[str, Any]:
     agent_mode = str(payload.get("agent_mode") or "default")
     allow_fallback = bool(payload.get("allow_fallback", False))
     clicked_point = payload.get("clicked_point")
+    clicked_object_id = payload.get("clicked_object_id")
     session_id = str(payload.get("session_id") or "ai2thor-demo")
     status = AI2ThorVisualSearchDemo.status(scene=scene)
     if not status.available:
@@ -250,6 +253,7 @@ def run_ai2thor_demo(payload: dict[str, Any]) -> dict[str, Any]:
             instruction=instruction,
             max_steps=max_steps,
             clicked_point=clicked_point,
+            clicked_object_id=clicked_object_id,
             session_id=session_id,
         ).to_dict()
     except Exception as exc:
@@ -281,6 +285,7 @@ async def stream_ai2thor_demo(
     scene = str(payload.get("scene") or "FloorPlan211")
     agent_mode = str(payload.get("agent_mode") or "default")
     clicked_point = payload.get("clicked_point")
+    clicked_object_id = payload.get("clicked_object_id")
     session_id = str(payload.get("session_id") or "ai2thor-demo")
     status = AI2ThorVisualSearchDemo.status(scene=scene)
     if not status.available:
@@ -320,6 +325,7 @@ async def stream_ai2thor_demo(
                 instruction=instruction,
                 max_steps=max_steps,
                 clicked_point=clicked_point,
+                clicked_object_id=clicked_object_id,
                 session_id=session_id,
                 episode_id=episode_id,
                 emit=emit,

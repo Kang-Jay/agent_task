@@ -6,8 +6,16 @@ from src.agent.model_adapter import ModelAdapter
 from src.agent.task_semantics import TaskPlan, TaskSemantics
 from src.memory.session_memory import SessionMemory
 from src.rag.retriever import HintRetriever
+from src.simulation.task_verifier import TaskVerifier
 from src.task.config import AgentConfig, load_config
-from src.types.schema import Action, AgentRequest, AgentResponse, SkillCall
+from src.types.schema import (
+    Action,
+    AgentRequest,
+    AgentResponse,
+    ExecutionSubgoal,
+    SkillCall,
+    TaskExecutionPlan,
+)
 from src.vision.heuristic_vision import HeuristicVision
 from src.vision.image_io import crop_from_point, image_to_data_url, load_image_from_any
 
@@ -24,6 +32,7 @@ class EmbodiedSearchAgent:
         self.retriever = HintRetriever(self.config)
         self.model_adapter = model_adapter or ModelAdapter()
         self.task_semantics = TaskSemantics()
+        self.task_verifier = TaskVerifier()
 
     def reset(self, session_id: str) -> dict[str, str]:
         self.memory.reset(session_id)
@@ -43,8 +52,30 @@ class EmbodiedSearchAgent:
         analysis = self.vision.analyze(observation, request.instruction, target_crop)
         hints = self.retriever.retrieve(request.instruction, state)
 
-        # Try model planner first
         vision_confidence = analysis.best_candidate.confidence if analysis.best_candidate else 0.0
+        completion_status = self.task_verifier.verify(
+            task_plan,
+            steps=state.steps,
+            target_visible=analysis.target_visible,
+            confidence=vision_confidence,
+            stop_confidence_threshold=self.config.stop_confidence_threshold,
+            environment_context=request.environment_context,
+        ).to_dict()
+        execution_plan = self._ensure_execution_plan(
+            state=state,
+            task_plan=task_plan,
+            request=request,
+            analysis=analysis,
+            observation=observation,
+            target_crop=target_crop,
+        )
+        execution_plan = self.memory.update_execution_plan(
+            state,
+            completion_status,
+            step_id=request.step_id,
+        ) or execution_plan
+
+        # Try model planner first
         action, skill_call, planner_source, fallback_reason, planner_confidence, model_info = self._plan_with_model(
             analysis,
             vision_confidence,
@@ -54,6 +85,8 @@ class EmbodiedSearchAgent:
             observation,
             target_crop,
             task_plan,
+            execution_plan,
+            completion_status,
         )
         confidence = (
             min(vision_confidence, planner_confidence)
@@ -83,12 +116,19 @@ class EmbodiedSearchAgent:
             fallback_reason = "illegal_action"
             model_info["decision_status"] = "rejected_illegal_action"
 
-        completion_status = task_plan.completion_status(
+        completion_status = self.task_verifier.verify(
+            task_plan,
             steps=state.steps,
             target_visible=analysis.target_visible,
             confidence=confidence,
             stop_confidence_threshold=self.config.stop_confidence_threshold,
-        )
+            environment_context=request.environment_context,
+        ).to_dict()
+        execution_plan = self.memory.update_execution_plan(
+            state,
+            completion_status,
+            step_id=request.step_id,
+        ) or execution_plan
         done = action.type in self.config.terminal_actions or action.type == "Done"
         if action.type in {"STOP", "Done"} and not completion_status["complete"]:
             if task_plan.is_visual_search:
@@ -100,6 +140,20 @@ class EmbodiedSearchAgent:
                     expected_observation=f"Execute {action.type}",
                 )
                 fallback_reason = "stop_confidence_too_low"
+            elif task_plan.completion_mode == "approximate_sit":
+                action = self._continue_approximate_sit(
+                    completion_status=completion_status,
+                    confidence=confidence,
+                    target_visible=analysis.target_visible,
+                    state=state,
+                )
+                skill_call = SkillCall(
+                    name=action.type,
+                    args=action.args,
+                    preconditions=[],
+                    expected_observation=f"Execute {action.type} and verify simulator state",
+                )
+                fallback_reason = "premature_done_replanned"
             else:
                 action = Action(
                     "ASK_CLARIFY",
@@ -154,6 +208,7 @@ class EmbodiedSearchAgent:
             "model_info": model_info,
             "recalled_memory_ids": [memory["id"] for memory in recalled_memories],
             "task_plan": task_plan.to_dict(),
+            "execution_plan": execution_plan.to_dict(),
             "completion_status": completion_status,
         }
         self.memory.record_step(state, step_record)
@@ -175,7 +230,13 @@ class EmbodiedSearchAgent:
             target_binding={
                 "language": bool(request.instruction.strip()),
                 "clicked_point": request.clicked_point,
+                "clicked_object_id": request.clicked_object_id,
                 "target_crop": bool(request.target_crop or request.clicked_point),
+                "crop_source": (
+                    "closeup_render" if (request.target_crop and request.clicked_object_id)
+                    else "point_crop" if request.target_crop
+                    else None
+                ),
                 "mode": "multimodal" if request.target_crop or request.clicked_point else "language_only",
             },
             structured_thought=structured_thought,
@@ -184,6 +245,7 @@ class EmbodiedSearchAgent:
             model_info=model_info,
             fallback_reason=fallback_reason,
             task_plan=task_plan.to_dict(),
+            execution_plan=execution_plan.to_dict(),
             completion_status=completion_status,
         )
 
@@ -241,6 +303,11 @@ class EmbodiedSearchAgent:
             "recalled_memories": list(state.retrieved_memories),
             "search_map": self.memory.search_map(state),
             "confidence_trace": self.memory.confidence_trace(state),
+            "execution_plan": (
+                state.execution_plan.to_dict()
+                if state.execution_plan is not None
+                else {}
+            ),
         }
 
     def _validate_request(self, request: AgentRequest) -> None:
@@ -269,6 +336,8 @@ class EmbodiedSearchAgent:
         observation: Image.Image,
         target_crop: Image.Image | None,
         task_plan: TaskPlan,
+        execution_plan: TaskExecutionPlan,
+        completion_status: dict[str, object],
     ) -> tuple[Action, SkillCall | None, str, str | None, float | None, dict[str, object]]:
         """Try to plan with model, fallback to rules if needed.
 
@@ -306,13 +375,9 @@ class EmbodiedSearchAgent:
             "action_specs": list(task_plan.action_specs),
             "terminal_actions": ["STOP", "Done", "ASK_CLARIFY"],
             "task_plan": task_plan.to_dict(),
+            "execution_plan": execution_plan.to_dict(),
             "environment_context": request.environment_context or {},
-            "completion_status": task_plan.completion_status(
-                steps=state.steps,
-                target_visible=analysis.target_visible,
-                confidence=confidence,
-                stop_confidence_threshold=self.config.stop_confidence_threshold,
-            ),
+            "completion_status": completion_status,
             "current_step": request.step_id,
             "max_steps": self.config.max_steps,
             "observation_image": image_to_data_url(observation),
@@ -399,6 +464,96 @@ class EmbodiedSearchAgent:
                 },
             )
 
+    def _ensure_execution_plan(
+        self,
+        *,
+        state,
+        task_plan: TaskPlan,
+        request: AgentRequest,
+        analysis,
+        observation: Image.Image,
+        target_crop: Image.Image | None,
+    ) -> TaskExecutionPlan:
+        if state.execution_plan is not None:
+            return state.execution_plan
+
+        semantic_subgoals = [dict(subgoal) for subgoal in task_plan.subgoals]
+        semantic_ids = [str(subgoal["id"]) for subgoal in semantic_subgoals]
+        ordered_ids = list(semantic_ids)
+        source = "semantic_fallback"
+        task_summary = request.instruction
+        failure_policy = (
+            "After failed execution, refresh environment evidence and choose a "
+            "different valid action; terminate only with an explicit reason."
+        )
+        vision_input_used = False
+
+        if self.model_adapter.available():
+            try:
+                result = self.model_adapter.plan_task(
+                    {
+                        "instruction": request.instruction,
+                        "observation_summary": analysis.scene_summary,
+                        "task_contract": task_plan.to_dict(),
+                        "environment_context": request.environment_context or {},
+                        "observation_image": image_to_data_url(observation),
+                        "target_crop": (
+                            image_to_data_url(target_crop)
+                            if target_crop is not None
+                            else None
+                        ),
+                        "require_vision": True,
+                    }
+                )
+            except Exception:
+                result = {"error": "task_planner_exception"}
+            candidate_ids = result.get("ordered_subgoal_ids")
+            if (
+                "error" not in result
+                and isinstance(candidate_ids, list)
+                and len(candidate_ids) == len(semantic_ids)
+                and len(set(candidate_ids)) == len(candidate_ids)
+                and set(candidate_ids) == set(semantic_ids)
+            ):
+                ordered_ids = [str(item) for item in candidate_ids]
+                source = "model_planner"
+                task_summary = str(result.get("task_summary") or request.instruction)
+                failure_policy = str(
+                    result.get("failure_policy") or failure_policy
+                )
+                vision_input_used = bool(result.get("vision_input_used", False))
+
+        subgoals_by_id = {
+            str(subgoal["id"]): subgoal for subgoal in semantic_subgoals
+        }
+        subgoals = [
+            ExecutionSubgoal(
+                id=subgoal_id,
+                description=str(subgoals_by_id[subgoal_id]["description"]),
+                success_evidence=str(
+                    subgoals_by_id[subgoal_id]["success_evidence"]
+                ),
+                status="in_progress" if index == 0 else "pending",
+            )
+            for index, subgoal_id in enumerate(ordered_ids)
+        ]
+        execution_plan = TaskExecutionPlan(
+            plan_id=f"{state.session_id}:v1",
+            instruction=request.instruction,
+            task_summary=task_summary,
+            task_types=list(task_plan.task_types),
+            completion_mode=task_plan.completion_mode,
+            subgoals=subgoals,
+            current_subgoal_id=subgoals[0].id if subgoals else None,
+            status="in_progress",
+            source=source,
+            failure_policy=failure_policy,
+            limitations=list(task_plan.limitations),
+            vision_input_used=vision_input_used,
+            last_updated_step=request.step_id,
+        )
+        return self.memory.set_execution_plan(state, execution_plan)
+
     def _rule_fallback_planner(self, confidence: float, target_visible: bool, state) -> Action:
         """Rule-based fallback planner (renamed from _plan_action)."""
         if target_visible and confidence >= self.config.stop_confidence_threshold:
@@ -413,6 +568,31 @@ class EmbodiedSearchAgent:
         if len(state.steps) % 4 == 2:
             return Action("TURN_LEFT", {"angle": self.config.raw["agent"]["default_turn_angle_degrees"]})
         return Action("TURN_RIGHT", {"angle": self.config.raw["agent"]["default_turn_angle_degrees"]})
+
+    def _continue_approximate_sit(
+        self,
+        *,
+        completion_status: dict,
+        confidence: float,
+        target_visible: bool,
+        state,
+    ) -> Action:
+        if not completion_status.get("approach_verified"):
+            if target_visible:
+                return Action(
+                    "MOVE_FORWARD",
+                    {"distance": 1, "reason": "approach target before crouching"},
+                )
+            return self._rule_fallback_planner(confidence, target_visible, state)
+        if "Crouch" in completion_status.get("missing_actions", []):
+            return Action(
+                "Crouch",
+                {"reason": "execute the documented sit approximation near the target"},
+            )
+        return Action(
+            "INSPECT",
+            {"reason": "refresh simulator evidence for the crouched posture"},
+        )
 
     def _build_thought(
         self,
@@ -437,6 +617,15 @@ class EmbodiedSearchAgent:
         if done:
             reason = str(completion_status.get("reason") or "完成条件尚未验证")
             return f"{scene_summary} 本轮已终止，但任务未验证完成：{reason}"
+        if (
+            completion_status.get("completion_mode") == "approximate_sit"
+            and not completion_status.get("complete")
+        ):
+            reason = str(completion_status.get("reason") or "近似坐下条件尚未验证")
+            return (
+                f"{scene_summary} 任务尚未完成：{reason}。"
+                f"下一步动作是 {action.type}。"
+            )
         return f"{scene_summary} 检索提示: {hint_text}。下一步动作是 {action.type}，因为置信度为 {confidence:.2f}。"
 
     def _build_structured_thought(
@@ -469,6 +658,14 @@ class EmbodiedSearchAgent:
             reasoning = f"目标已确认！置信度 {confidence:.2f} 超过阈值 {self.config.stop_confidence_threshold:.2f}，可以停止搜索。"
         elif done:
             reasoning = f"本轮已终止，但完成条件未通过验证：{completion_status.get('reason', '未提供原因')}"
+        elif (
+            completion_status.get("completion_mode") == "approximate_sit"
+            and not completion_status.get("complete")
+        ):
+            reasoning = (
+                "任务未完成，必须继续执行并验证近似坐下子目标："
+                f"{completion_status.get('reason', '完成条件尚未满足')}"
+            )
         elif confidence >= self.config.target_visible_threshold:
             reasoning = f"发现疑似目标，但置信度 {confidence:.2f} 还不够高，需要更近距离观察或换个角度。"
         else:
@@ -483,6 +680,8 @@ class EmbodiedSearchAgent:
             "TURN_RIGHT": "向右转",
             "LOOK_UP": "向上看",
             "LOOK_DOWN": "向下看",
+            "Crouch": "蹲下",
+            "Stand": "站起",
             "INSPECT": "仔细检查",
             "STOP": "停止",
             "ASK_CLARIFY": "请求澄清"

@@ -4,6 +4,11 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
+SubgoalStatus = Literal["pending", "in_progress", "completed"]
+ExecutionPlanStatus = Literal["in_progress", "completed", "failed", "terminated"]
+ExecutionPlanSource = Literal["model_planner", "semantic_fallback"]
+
+
 @dataclass(frozen=True)
 class Action:
     type: str
@@ -42,6 +47,82 @@ class Candidate:
 
 
 @dataclass(frozen=True)
+class ClickedObjectBinding:
+    """Result of resolving a user click to a concrete scene object.
+
+    Produced when the user clicks an object in the viewport/map and the
+    simulator grounds it to an AI2-THOR objectId, then renders a close-up
+    reference image near the object to feed the vision model.
+    """
+    object_id: str
+    object_type: str
+    affordances: dict[str, Any] = field(default_factory=dict)
+    closeup_source: str = ""
+    closeup_bbox: list[int] | None = None
+    world_position: dict[str, float] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "object_id": self.object_id,
+            "object_type": self.object_type,
+            "affordances": self.affordances,
+            "closeup_source": self.closeup_source,
+            "closeup_bbox": self.closeup_bbox,
+            "world_position": self.world_position,
+        }
+
+
+@dataclass
+class ExecutionSubgoal:
+    id: str
+    description: str
+    success_evidence: str
+    status: SubgoalStatus = "pending"
+    evidence: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class TaskExecutionPlan:
+    plan_id: str
+    instruction: str
+    task_summary: str
+    task_types: list[str]
+    completion_mode: str
+    subgoals: list[ExecutionSubgoal]
+    current_subgoal_id: str | None
+    status: ExecutionPlanStatus
+    source: ExecutionPlanSource
+    failure_policy: str
+    limitations: list[str] = field(default_factory=list)
+    revision: int = 1
+    replan_count: int = 0
+    vision_input_used: bool = False
+    last_updated_step: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "plan_id": self.plan_id,
+            "instruction": self.instruction,
+            "task_summary": self.task_summary,
+            "task_types": list(self.task_types),
+            "completion_mode": self.completion_mode,
+            "subgoals": [subgoal.to_dict() for subgoal in self.subgoals],
+            "current_subgoal_id": self.current_subgoal_id,
+            "status": self.status,
+            "source": self.source,
+            "failure_policy": self.failure_policy,
+            "limitations": list(self.limitations),
+            "revision": self.revision,
+            "replan_count": self.replan_count,
+            "vision_input_used": self.vision_input_used,
+            "last_updated_step": self.last_updated_step,
+        }
+
+
+@dataclass(frozen=True)
 class ObservationAnalysis:
     image_size: tuple[int, int]
     scene_summary: str
@@ -67,6 +148,7 @@ class AgentRequest:
     step_id: int = 0
     target_crop: str | None = None
     clicked_point: list[int] | None = None
+    clicked_object_id: str | None = None
     agent_mode: str = "default"
     environment_context: dict[str, Any] | None = None
 
@@ -93,6 +175,7 @@ class AgentResponse:
     model_info: dict[str, Any] = field(default_factory=dict)
     fallback_reason: str | None = None
     task_plan: dict[str, Any] = field(default_factory=dict)
+    execution_plan: dict[str, Any] = field(default_factory=dict)
     completion_status: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -117,5 +200,6 @@ class AgentResponse:
             "model_info": self.model_info,
             "fallback_reason": self.fallback_reason,
             "task_plan": self.task_plan,
+            "execution_plan": self.execution_plan,
             "completion_status": self.completion_status,
         }

@@ -3,9 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Any, Callable
 
 from PIL import Image
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.simulation.ai2thor_interactions import AI2ThorInteractionResolver
 from src.simulation.ai2thor_postconditions import AI2ThorPostconditionVerifier

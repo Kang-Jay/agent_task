@@ -80,11 +80,19 @@ class EmbodiedSearchAgent:
             step_id=request.step_id,
         ) or execution_plan
 
+        guidance_yielded_for_interaction = (
+            self._has_successful_real_vlm_step(state)
+            and self._approach_guidance_should_yield(
+                task_plan=task_plan,
+                completion_status=completion_status,
+                state=state,
+            )
+        )
         approach_context = (
             (request.environment_context or {}).get("approach") or {}
         )
         approach_action = None
-        if self._has_successful_real_vlm_step(state):
+        if self._has_successful_real_vlm_step(state) and not guidance_yielded_for_interaction:
             approach_action = self._verified_approach_action(
                 task_plan=task_plan,
                 completion_status=completion_status,
@@ -115,6 +123,37 @@ class EmbodiedSearchAgent:
                 "status": "skill_planner",
                 "skill": "APPROACH_TARGET",
                 "vision_input_used": False,
+                "path_status": approach_context.get("path_status"),
+            }
+        elif guidance_yielded_for_interaction:
+            action = self._continue_supported_task(
+                task_plan=task_plan,
+                completion_status=completion_status,
+                confidence=vision_confidence,
+                target_visible=analysis.target_visible,
+                environment_context=request.environment_context,
+                state=state,
+            )
+            skill_call = SkillCall(
+                name=action.type,
+                args=action.args,
+                preconditions=[
+                    "a prior real VLM vision step selected the task context",
+                    "verified approach guidance yielded to the next task predicate",
+                ],
+                expected_observation=(
+                    "execute the next missing embodied predicate and verify "
+                    "AI2-THOR metadata"
+                ),
+            )
+            planner_source = "rule_fallback"
+            fallback_reason = "verifier_guided_interaction_continuation"
+            planner_confidence = None
+            model_info = {
+                "status": "verifier_guided_continuation",
+                "vision_input_used": False,
+                "prior_real_vlm_step": True,
+                "missing_actions": list(completion_status.get("missing_actions") or []),
                 "path_status": approach_context.get("path_status"),
             }
         else:
@@ -947,37 +986,71 @@ class EmbodiedSearchAgent:
     ) -> Action:
         missing_actions = list(completion_status.get("missing_actions") or [])
         if "OpenObject" in missing_actions:
-            object_type = "Door"
-            for item in (environment_context or {}).get("objects", []):
-                candidate_type = str(item.get("objectType") or "")
-                if (
-                    "door" in candidate_type.lower()
-                    and bool(item.get("openable"))
-                    and bool(item.get("visible"))
-                    and not bool(item.get("isOpen"))
-                ):
-                    object_type = candidate_type
-                    break
+            target = self._select_context_object(
+                task_plan=task_plan,
+                environment_context=environment_context,
+                require_flag="openable",
+                exclude_open=True,
+                prefer_visible=True,
+            )
+            object_type = self._object_type_for_action(target, default="Door")
+            object_id = self._object_id_for_action(target)
+            args = {
+                "objectType": object_type,
+                "reason": "open the requested doorway before crossing the threshold",
+            }
+            if object_id:
+                args["objectId"] = object_id
             return Action(
                 "OpenObject",
-                {
-                    "objectType": object_type,
-                    "reason": "open the requested doorway before crossing the threshold",
-                },
+                args,
             )
         if "PickupObject" in missing_actions:
+            target = self._select_context_object(
+                task_plan=task_plan,
+                environment_context=environment_context,
+                require_flag="pickupable",
+                prefer_visible=True,
+            )
+            object_type = self._object_type_for_action(target, default="object")
+            object_id = self._object_id_for_action(target)
+            args = {
+                "objectType": object_type,
+                "reason": "pickup the required object before placement",
+            }
+            if object_id:
+                args["objectId"] = object_id
             return Action(
                 "PickupObject",
-                {"objectType": "Vase", "reason": "pickup required object before placement"},
+                args,
             )
         if "PutObject" in missing_actions:
+            held = self._held_inventory_object(environment_context)
+            receptacle = self._select_context_object(
+                task_plan=task_plan,
+                environment_context=environment_context,
+                require_flag="receptacle",
+                prefer_visible=True,
+                exclude_inventory=True,
+            )
+            held_type = self._object_type_for_action(held, default="held object")
+            held_id = self._object_id_for_action(held)
+            receptacle_type = self._object_type_for_action(receptacle, default="receptacle")
+            receptacle_id = self._object_id_for_action(receptacle)
+            args = {
+                "object": held_type,
+                "heldObjectType": held_type,
+                "receptacleType": receptacle_type,
+                "reason": "place the held object into the requested receptacle",
+            }
+            if held_id:
+                args["heldObjectId"] = held_id
+            if receptacle_id:
+                args["receptacleObjectId"] = receptacle_id
+                args["objectId"] = receptacle_id
             return Action(
                 "PutObject",
-                {
-                    "object": "Vase",
-                    "receptacleType": "Box",
-                    "reason": "place held object into requested receptacle",
-                },
+                args,
             )
         if "exit_room" in task_plan.task_types:
             return Action(
@@ -995,6 +1068,111 @@ class EmbodiedSearchAgent:
             "INSPECT",
             {"reason": "refresh simulator evidence before termination"},
         )
+
+    @staticmethod
+    def _held_inventory_object(
+        environment_context: dict | None,
+    ) -> dict | None:
+        inventory = (environment_context or {}).get("inventoryObjects") or []
+        if not isinstance(inventory, list) or not inventory:
+            return None
+        first = inventory[0]
+        return first if isinstance(first, dict) else None
+
+    @staticmethod
+    def _object_id_for_action(item: dict | None) -> str:
+        if not isinstance(item, dict):
+            return ""
+        return str(item.get("objectId") or item.get("name") or "").strip()
+
+    @staticmethod
+    def _object_type_for_action(item: dict | None, *, default: str) -> str:
+        if not isinstance(item, dict):
+            return default
+        return str(item.get("objectType") or item.get("name") or default).strip() or default
+
+    @staticmethod
+    def _object_distance_sort_key(item: dict) -> float:
+        try:
+            distance = float(item.get("distance"))
+        except (TypeError, ValueError):
+            return float("inf")
+        return distance if math.isfinite(distance) and distance >= 0.0 else float("inf")
+
+    @staticmethod
+    def _instruction_mentions_object_type(
+        task_plan: TaskPlan,
+        object_type: str,
+    ) -> bool:
+        normalized_instruction = task_plan.instruction.lower()
+        normalized_type = "".join(
+            ch for ch in object_type.lower() if ch.isalnum()
+        )
+        if not normalized_type:
+            return False
+        if object_type.lower() in normalized_instruction:
+            return True
+        aliases = {
+            "cardboardbox": ("cardboard box", "box", "纸箱", "箱子", "盒子"),
+            "box": ("box", "纸箱", "箱子", "盒子"),
+            "vase": ("vase", "花瓶"),
+            "mug": ("mug", "马克杯", "杯子"),
+            "cup": ("cup", "杯子"),
+            "bowl": ("bowl", "碗"),
+            "door": ("door", "门", "房门"),
+            "sofa": ("sofa", "couch", "沙发"),
+            "television": ("television", "tv", "电视"),
+        }
+        return any(
+            alias.lower() in normalized_instruction
+            for alias in aliases.get(normalized_type, (normalized_type,))
+        )
+
+    @classmethod
+    def _select_context_object(
+        cls,
+        *,
+        task_plan: TaskPlan,
+        environment_context: dict | None,
+        require_flag: str,
+        prefer_visible: bool,
+        exclude_open: bool = False,
+        exclude_inventory: bool = False,
+    ) -> dict | None:
+        context = environment_context or {}
+        inventory_ids = {
+            str(item.get("objectId") or "")
+            for item in context.get("inventoryObjects", []) or []
+            if isinstance(item, dict)
+        }
+        candidates = []
+        for item in context.get("objects", []) or []:
+            if not isinstance(item, dict):
+                continue
+            if require_flag and item.get(require_flag) is not True:
+                continue
+            if exclude_open and item.get("isOpen") is True:
+                continue
+            if exclude_inventory and str(item.get("objectId") or "") in inventory_ids:
+                continue
+            candidates.append(item)
+        if not candidates:
+            return None
+
+        matching_ids = task_plan.matching_target_object_ids(context)
+
+        def score(item: dict) -> tuple[int, int, int, float, str]:
+            object_id = str(item.get("objectId") or "")
+            object_type = str(item.get("objectType") or item.get("name") or "")
+            return (
+                0 if object_id in matching_ids else 1,
+                0 if cls._instruction_mentions_object_type(task_plan, object_type) else 1,
+                0 if (not prefer_visible or item.get("visible") is True) else 1,
+                cls._object_distance_sort_key(item),
+                object_id or object_type,
+            )
+
+        return sorted(candidates, key=score)[0]
 
     def _build_thought(
         self,

@@ -334,6 +334,100 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertFalse(response.done)
         self.assertFalse(response.completion_status["complete"])
 
+    def test_continue_supported_task_selects_pickup_target_from_context(self) -> None:
+        agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))
+        task_plan = agent.task_semantics.analyze(
+            "put the mug in the bowl",
+            mode="default",
+            legacy_actions=self.config.allowed_actions,
+        )
+        action = agent._continue_supported_task(
+            task_plan=task_plan,
+            completion_status={
+                "approach_verified": False,
+                "missing_actions": ["PickupObject", "PutObject"],
+            },
+            confidence=0.8,
+            target_visible=True,
+            environment_context={
+                "objects": [
+                    {
+                        "objectId": "Vase|1",
+                        "objectType": "Vase",
+                        "visible": True,
+                        "distance": 0.6,
+                        "pickupable": True,
+                    },
+                    {
+                        "objectId": "Mug|1",
+                        "objectType": "Mug",
+                        "visible": True,
+                        "distance": 1.4,
+                        "pickupable": True,
+                    },
+                    {
+                        "objectId": "Bowl|1",
+                        "objectType": "Bowl",
+                        "visible": True,
+                        "distance": 1.0,
+                        "receptacle": True,
+                    },
+                ],
+            },
+            state=Mock(steps=[]),
+        )
+
+        self.assertEqual(action.type, "PickupObject")
+        self.assertEqual(action.args["objectType"], "Mug")
+        self.assertEqual(action.args["objectId"], "Mug|1")
+        self.assertNotEqual(action.args["objectType"], "Vase")
+
+    def test_continue_supported_task_selects_put_receptacle_from_context(self) -> None:
+        agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))
+        task_plan = agent.task_semantics.analyze(
+            "put the mug in the bowl",
+            mode="default",
+            legacy_actions=self.config.allowed_actions,
+        )
+        action = agent._continue_supported_task(
+            task_plan=task_plan,
+            completion_status={
+                "approach_verified": False,
+                "missing_actions": ["PutObject"],
+            },
+            confidence=0.8,
+            target_visible=True,
+            environment_context={
+                "inventoryObjects": [
+                    {"objectId": "Mug|1", "objectType": "Mug"},
+                ],
+                "objects": [
+                    {
+                        "objectId": "Box|1",
+                        "objectType": "Box",
+                        "visible": True,
+                        "distance": 0.5,
+                        "receptacle": True,
+                    },
+                    {
+                        "objectId": "Bowl|1",
+                        "objectType": "Bowl",
+                        "visible": True,
+                        "distance": 1.2,
+                        "receptacle": True,
+                    },
+                ],
+            },
+            state=Mock(steps=[]),
+        )
+
+        self.assertEqual(action.type, "PutObject")
+        self.assertEqual(action.args["object"], "Mug")
+        self.assertEqual(action.args["heldObjectId"], "Mug|1")
+        self.assertEqual(action.args["receptacleType"], "Bowl")
+        self.assertEqual(action.args["receptacleObjectId"], "Bowl|1")
+        self.assertNotEqual(action.args["receptacleType"], "Box")
+
     def test_agent_replans_premature_done_for_right_door_exit(self) -> None:
         agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))
         mock_result = {
@@ -652,6 +746,98 @@ class ModelPlannerTests(unittest.TestCase):
         )
 
         self.assertIsNone(action)
+
+    def test_interaction_continuation_after_approach_yield_skips_slow_model(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        image_path = self.config.image_dir / "ep_red_cup_visible_000.png"
+        state = agent.memory.get_or_create(
+            "test-approach-yield-continuation",
+            "put the mug in the bowl",
+        )
+        state.steps.extend(
+            [
+                {
+                    "planner_source": "model_planner",
+                    "model_info": {
+                        "status": "ok",
+                        "vision_input_used": True,
+                        "provider": "kimi",
+                        "model": "kimi-k2.6",
+                    },
+                    "action_success": True,
+                    "executed_action": {"type": "TURN_RIGHT", "args": {"angle": 30.0}},
+                },
+                {
+                    "planner_source": "simulator_oracle",
+                    "fallback_reason": "verified_approach_navigation",
+                    "action_success": True,
+                    "executed_action": {"type": "MOVE_FORWARD", "args": {"distance": 0.25}},
+                },
+                {
+                    "planner_source": "simulator_oracle",
+                    "fallback_reason": "verified_approach_navigation",
+                    "action_success": True,
+                    "executed_action": {"type": "TURN_LEFT", "args": {"angle": 5.0}},
+                },
+                {
+                    "planner_source": "simulator_oracle",
+                    "fallback_reason": "verified_approach_navigation",
+                    "action_success": True,
+                    "executed_action": {"type": "TURN_RIGHT", "args": {"angle": 5.0}},
+                },
+            ]
+        )
+
+        with patch.object(agent.model_adapter, "available", return_value=True):
+            with patch.object(agent.model_adapter, "plan_action") as plan_action:
+                response = agent.step(
+                    AgentRequest(
+                        session_id="test-approach-yield-continuation",
+                        instruction="put the mug in the bowl",
+                        observation_image=str(image_path),
+                        step_id=4,
+                        environment_context={
+                            "objects": [
+                                {
+                                    "objectId": "Mug|1",
+                                    "objectType": "Mug",
+                                    "visible": True,
+                                    "pickupable": True,
+                                    "distance": 0.5,
+                                },
+                                {
+                                    "objectId": "Bowl|1",
+                                    "objectType": "Bowl",
+                                    "visible": True,
+                                    "receptacle": True,
+                                    "distance": 0.8,
+                                },
+                            ],
+                            "approach": {
+                                "verified": False,
+                                "objectId": "Mug|1",
+                                "source": "ai2thor_interactable_pose",
+                                "path_status": "PathComplete",
+                                "recommended_action": {
+                                    "type": "MOVE_FORWARD",
+                                    "args": {"distance": 0.25},
+                                },
+                            },
+                        },
+                    )
+                )
+
+        plan_action.assert_not_called()
+        self.assertEqual(response.action.type, "PickupObject")
+        self.assertEqual(response.action.args["objectType"], "Mug")
+        self.assertEqual(
+            response.fallback_reason,
+            "verifier_guided_interaction_continuation",
+        )
+        self.assertTrue(response.model_info["prior_real_vlm_step"])
 
     def test_agent_rejects_partial_approach_path(self) -> None:
         agent = EmbodiedSearchAgent(

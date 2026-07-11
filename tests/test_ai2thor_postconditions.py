@@ -25,6 +25,56 @@ class AI2ThorPostconditionVerifierTests(unittest.TestCase):
         self.assertTrue(result.checked)
         self.assertTrue(result.passed)
 
+    def test_pickup_rejects_wrong_object_entering_inventory(self):
+        result = self.verifier.verify(
+            action="PickupObject",
+            args={"objectId": "Mug|1"},
+            before={"inventoryObjects": [], "objects": []},
+            after={
+                "inventoryObjects": [{"objectId": "Apple|1"}],
+                "objects": [],
+            },
+            runtime_success=True,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(
+            result.evidence["addedInventoryObjectIds"],
+            ["Apple|1"],
+        )
+
+    def test_pickup_rejects_target_already_in_inventory(self):
+        result = self.verifier.verify(
+            action="PickupObject",
+            args={"objectId": "Mug|1"},
+            before={
+                "inventoryObjects": [{"objectId": "Mug|1"}],
+                "objects": [],
+            },
+            after={
+                "inventoryObjects": [{"objectId": "Mug|1"}],
+                "objects": [],
+            },
+            runtime_success=True,
+        )
+
+        self.assertFalse(result.passed)
+
+    def test_pickup_requires_explicit_target_object(self):
+        result = self.verifier.verify(
+            action="PickupObject",
+            args={},
+            before={"inventoryObjects": [], "objects": []},
+            after={
+                "inventoryObjects": [{"objectId": "Mug|1"}],
+                "objects": [],
+            },
+            runtime_success=True,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertIsNone(result.evidence["objectId"])
+
     def test_put_requires_object_in_requested_receptacle(self):
         result = self.verifier.verify(
             action="PutObject",
@@ -50,6 +100,7 @@ class AI2ThorPostconditionVerifierTests(unittest.TestCase):
         )
         self.assertTrue(result.passed)
         self.assertEqual(result.evidence["placedObjectIds"], ["Egg|1"])
+        self.assertEqual(result.evidence["heldObjectId"], "Egg|1")
 
     def test_put_fails_when_inventory_releases_into_different_receptacle(self):
         result = self.verifier.verify(
@@ -80,6 +131,149 @@ class AI2ThorPostconditionVerifierTests(unittest.TestCase):
         )
         self.assertFalse(result.passed)
 
+    def test_put_rejects_receptacle_only_registration(self):
+        result = self.verifier.verify(
+            action="PutObject",
+            args={"objectId": "Bowl|1"},
+            before={
+                "inventoryObjects": [{"objectId": "Egg|1"}],
+                "objects": [],
+            },
+            after={
+                "inventoryObjects": [],
+                "objects": [
+                    {
+                        "objectId": "Egg|1",
+                        "parentReceptacles": ["Plate|1"],
+                    },
+                    {
+                        "objectId": "Bowl|1",
+                        "receptacleObjectIds": ["Egg|1"],
+                    },
+                ],
+            },
+            runtime_success=True,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertTrue(result.evidence["registeredByReceptacle"])
+        self.assertFalse(result.evidence["registeredByObject"])
+
+    def test_put_rejects_object_only_registration(self):
+        result = self.verifier.verify(
+            action="PutObject",
+            args={"objectId": "Bowl|1"},
+            before={
+                "inventoryObjects": [{"objectId": "Egg|1"}],
+                "objects": [],
+            },
+            after={
+                "inventoryObjects": [],
+                "objects": [
+                    {
+                        "objectId": "Egg|1",
+                        "parentReceptacles": ["Bowl|1"],
+                    },
+                    {
+                        "objectId": "Bowl|1",
+                        "receptacleObjectIds": [],
+                    },
+                ],
+            },
+            runtime_success=True,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertFalse(result.evidence["registeredByReceptacle"])
+        self.assertTrue(result.evidence["registeredByObject"])
+
+    def test_put_rejects_ambiguous_multi_object_inventory(self):
+        result = self.verifier.verify(
+            action="PutObject",
+            args={"objectId": "Bowl|1"},
+            before={
+                "inventoryObjects": [
+                    {"objectId": "Egg|1"},
+                    {"objectId": "Mug|1"},
+                ],
+                "objects": [],
+            },
+            after={
+                "inventoryObjects": [{"objectId": "Egg|1"}],
+                "objects": [
+                    {
+                        "objectId": "Mug|1",
+                        "parentReceptacles": ["Bowl|1"],
+                    },
+                    {
+                        "objectId": "Bowl|1",
+                        "receptacleObjectIds": ["Mug|1"],
+                    },
+                ],
+            },
+            runtime_success=True,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertIsNone(result.evidence["heldObjectId"])
+
+    def test_put_rejects_inventory_object_swap(self):
+        result = self.verifier.verify(
+            action="PutObject",
+            args={"objectId": "Bowl|1"},
+            before={
+                "inventoryObjects": [{"objectId": "Egg|1"}],
+                "objects": [],
+            },
+            after={
+                "inventoryObjects": [{"objectId": "Mug|1"}],
+                "objects": [
+                    {
+                        "objectId": "Egg|1",
+                        "parentReceptacles": ["Bowl|1"],
+                    },
+                    {
+                        "objectId": "Bowl|1",
+                        "receptacleObjectIds": ["Egg|1"],
+                    },
+                ],
+            },
+            runtime_success=True,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertEqual(
+            result.evidence["addedInventoryObjectIds"],
+            ["Mug|1"],
+        )
+
+    def test_put_requires_explicit_receptacle(self):
+        result = self.verifier.verify(
+            action="PutObject",
+            args={},
+            before={
+                "inventoryObjects": [{"objectId": "Egg|1"}],
+                "objects": [],
+            },
+            after={
+                "inventoryObjects": [],
+                "objects": [
+                    {
+                        "objectId": "Egg|1",
+                        "parentReceptacles": ["Bowl|1"],
+                    },
+                    {
+                        "objectId": "Bowl|1",
+                        "receptacleObjectIds": ["Egg|1"],
+                    },
+                ],
+            },
+            runtime_success=True,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertIsNone(result.evidence["receptacleObjectId"])
+
     def test_open_requires_object_state_change(self):
         before = {"objects": [{"objectId": "Cabinet|1", "isOpen": False}]}
         after = {"objects": [{"objectId": "Cabinet|1", "isOpen": True}]}
@@ -91,7 +285,68 @@ class AI2ThorPostconditionVerifierTests(unittest.TestCase):
             runtime_success=True,
         )
         self.assertTrue(result.passed)
-        self.assertEqual(result.evidence["actual"], True)
+        self.assertIs(result.evidence["beforeIsOpen"], False)
+        self.assertIs(result.evidence["afterIsOpen"], True)
+
+    def test_open_rejects_object_that_was_already_open(self):
+        result = self.verifier.verify(
+            action="OpenObject",
+            args={"objectId": "Cabinet|1"},
+            before={
+                "objects": [
+                    {"objectId": "Cabinet|1", "isOpen": True},
+                ]
+            },
+            after={
+                "objects": [
+                    {"objectId": "Cabinet|1", "isOpen": True},
+                ]
+            },
+            runtime_success=True,
+        )
+
+        self.assertFalse(result.passed)
+
+    def test_open_rejects_different_object_opening(self):
+        result = self.verifier.verify(
+            action="OpenObject",
+            args={"objectId": "Cabinet|1"},
+            before={
+                "objects": [
+                    {"objectId": "Cabinet|1", "isOpen": False},
+                    {"objectId": "Drawer|1", "isOpen": False},
+                ]
+            },
+            after={
+                "objects": [
+                    {"objectId": "Cabinet|1", "isOpen": False},
+                    {"objectId": "Drawer|1", "isOpen": True},
+                ]
+            },
+            runtime_success=True,
+        )
+
+        self.assertFalse(result.passed)
+
+    def test_open_requires_explicit_target_object(self):
+        result = self.verifier.verify(
+            action="OpenObject",
+            args={},
+            before={
+                "objects": [
+                    {"objectId": "Cabinet|1", "isOpen": False},
+                ]
+            },
+            after={
+                "objects": [
+                    {"objectId": "Cabinet|1", "isOpen": True},
+                ]
+            },
+            runtime_success=True,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertIsNone(result.evidence["objectId"])
 
     def test_runtime_failure_always_fails(self):
         result = self.verifier.verify(

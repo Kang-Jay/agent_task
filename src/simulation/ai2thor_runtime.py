@@ -1,11 +1,97 @@
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import dataclass, field
 import math
 from typing import Any
 
 
 GRID_ALIGNED_ROTATIONS = (0.0, 90.0, 180.0, 270.0)
 DEFAULT_GRID_SIZE_METERS = 0.25
+
+
+def _metadata_snapshot(event: Any) -> dict[str, Any]:
+    """Return a detached snapshot of an AI2-THOR event's metadata."""
+    metadata = getattr(event, "metadata", None)
+    if metadata is None:
+        return {}
+    if not isinstance(metadata, dict):
+        raise TypeError("AI2-THOR event metadata must be a dictionary")
+    return deepcopy(metadata)
+
+
+@dataclass(frozen=True)
+class RuntimeActionExecution:
+    """Auditable result of one exact, parameterized Unity action call."""
+
+    action: str
+    args: dict[str, Any]
+    before_metadata: dict[str, Any]
+    after_metadata: dict[str, Any]
+    success: bool
+    error_message: str
+    action_return: Any
+    inventory_before: list[Any]
+    inventory_after: list[Any]
+    event: Any = field(repr=False, compare=False)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "args": deepcopy(self.args),
+            "before_metadata": deepcopy(self.before_metadata),
+            "after_metadata": deepcopy(self.after_metadata),
+            "success": self.success,
+            "last_action_success": self.success,
+            "error_message": self.error_message,
+            "action_return": deepcopy(self.action_return),
+            "inventory_before": deepcopy(self.inventory_before),
+            "inventory_after": deepcopy(self.inventory_after),
+        }
+
+
+def execute_controller_action(
+    controller: Any,
+    *,
+    action: str,
+    args: dict[str, Any] | None = None,
+) -> RuntimeActionExecution:
+    """Execute an exact AI2-THOR action and retain before/after audit state.
+
+    Action validation and abstract-name normalization belong to the action
+    catalog. This runtime boundary deliberately forwards the native action name
+    and parameter payload unchanged to ``Controller.step``.
+    """
+    if not isinstance(action, str) or not action.strip():
+        raise ValueError("action must be a non-empty string")
+    if args is not None and not isinstance(args, dict):
+        raise TypeError("args must be a dictionary or None")
+
+    call_args = deepcopy(args or {})
+    if "action" in call_args:
+        raise ValueError("args must not contain the reserved 'action' key")
+
+    before_event = getattr(controller, "last_event", None)
+    before_metadata = _metadata_snapshot(before_event)
+
+    # Do not catch Controller.step exceptions. Transport, Unity process, and
+    # programming failures must retain their original type and traceback.
+    event = controller.step(action=action, **call_args)
+    after_metadata = _metadata_snapshot(event)
+    success = bool(after_metadata.get("lastActionSuccess", False))
+
+    return RuntimeActionExecution(
+        action=action,
+        args=call_args,
+        before_metadata=before_metadata,
+        after_metadata=after_metadata,
+        success=success,
+        error_message=str(after_metadata.get("errorMessage") or ""),
+        action_return=deepcopy(after_metadata.get("actionReturn")),
+        inventory_before=deepcopy(before_metadata.get("inventoryObjects", [])),
+        inventory_after=deepcopy(after_metadata.get("inventoryObjects", [])),
+        event=event,
+    )
 
 
 def is_grid_aligned_rotation(rotate_step_degrees: float) -> bool:

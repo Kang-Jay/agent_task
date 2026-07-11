@@ -161,13 +161,33 @@ class AI2ThorPostconditionVerifier:
 
         object_id = self._object_id(args)
         if action == "PickupObject":
-            inventory = self._inventory_ids(after)
-            passed = object_id in inventory if object_id else len(inventory) > len(self._inventory_ids(before))
+            before_inventory = self._inventory_ids(before)
+            after_inventory = self._inventory_ids(after)
+            added_ids = after_inventory - before_inventory
+            removed_ids = before_inventory - after_inventory
+            passed = (
+                object_id is not None
+                and object_id not in before_inventory
+                and object_id in after_inventory
+                and added_ids == {object_id}
+                and not removed_ids
+            )
             return self._result(
                 action,
                 passed,
-                "target object entered inventory" if passed else "target object is not in inventory",
-                {"objectId": object_id, "inventoryObjectIds": sorted(inventory)},
+                (
+                    "exact target object entered inventory"
+                    if passed
+                    else "exact target object did not enter inventory cleanly"
+                ),
+                {
+                    "objectId": object_id,
+                    "beforeInventoryObjectIds": sorted(before_inventory),
+                    "afterInventoryObjectIds": sorted(after_inventory),
+                    "inventoryObjectIds": sorted(after_inventory),
+                    "addedInventoryObjectIds": sorted(added_ids),
+                    "removedInventoryObjectIds": sorted(removed_ids),
+                },
             )
         if action == "PutObject":
             before_inventory = self._inventory_ids(before)
@@ -181,34 +201,68 @@ class AI2ThorPostconditionVerifier:
                     (target_receptacle or {}).get("receptacleObjectIds") or []
                 )
             }
-            placed_ids = {
-                released_id
-                for released_id in released_ids
-                if receptacle_id
-                in (
-                    (self._object(after, released_id) or {}).get(
-                        "parentReceptacles"
-                    )
-                    or []
+            held_object_id = (
+                next(iter(before_inventory))
+                if len(before_inventory) == 1
+                else None
+            )
+            held_object = self._object(after, held_object_id)
+            parent_receptacle_ids = {
+                str(value)
+                for value in (
+                    (held_object or {}).get("parentReceptacles") or []
                 )
-                and released_id in receptacle_object_ids
             }
-            passed = bool(released_ids) and placed_ids == released_ids
+            added_inventory_ids = after_inventory - before_inventory
+            exact_release = (
+                held_object_id is not None
+                and released_ids == {held_object_id}
+                and held_object_id not in after_inventory
+                and not added_inventory_ids
+            )
+            registered_by_receptacle = (
+                held_object_id is not None
+                and held_object_id in receptacle_object_ids
+            )
+            registered_by_object = (
+                receptacle_id is not None
+                and receptacle_id in parent_receptacle_ids
+            )
+            passed = (
+                receptacle_id is not None
+                and target_receptacle is not None
+                and held_object is not None
+                and exact_release
+                and registered_by_receptacle
+                and registered_by_object
+            )
+            placed_ids = (
+                [held_object_id]
+                if passed and held_object_id is not None
+                else []
+            )
             return self._result(
                 action,
                 passed,
                 (
-                    "released object entered the requested receptacle"
+                    "exact held object left inventory and entered the requested receptacle"
                     if passed
-                    else "released object is not registered in the requested receptacle"
+                    else "exact held object was not placed in the requested receptacle"
                 ),
                 {
                     "receptacleObjectId": receptacle_id,
+                    "heldObjectId": held_object_id,
                     "beforeInventoryObjectIds": sorted(before_inventory),
                     "afterInventoryObjectIds": sorted(after_inventory),
+                    "addedInventoryObjectIds": sorted(added_inventory_ids),
                     "releasedObjectIds": sorted(released_ids),
-                    "placedObjectIds": sorted(placed_ids),
+                    "placedObjectIds": placed_ids,
                     "receptacleObjectIds": sorted(receptacle_object_ids),
+                    "heldObjectParentReceptacles": sorted(
+                        parent_receptacle_ids
+                    ),
+                    "registeredByReceptacle": registered_by_receptacle,
+                    "registeredByObject": registered_by_object,
                 },
             )
         if action in {"DropHandObject", "ThrowObject", "ReleaseObject"}:
@@ -229,8 +283,42 @@ class AI2ThorPostconditionVerifier:
                 },
             )
 
+        if action == "OpenObject":
+            before_target = self._object(before, object_id)
+            after_target = self._object(after, object_id)
+            before_is_open = (
+                before_target.get("isOpen")
+                if before_target is not None
+                else None
+            )
+            after_is_open = (
+                after_target.get("isOpen")
+                if after_target is not None
+                else None
+            )
+            passed = (
+                object_id is not None
+                and before_target is not None
+                and after_target is not None
+                and before_is_open is False
+                and after_is_open is True
+            )
+            return self._result(
+                action,
+                passed,
+                (
+                    "exact target object changed from closed to open"
+                    if passed
+                    else "exact target object did not change from closed to open"
+                ),
+                {
+                    "objectId": object_id,
+                    "beforeIsOpen": before_is_open,
+                    "afterIsOpen": after_is_open,
+                },
+            )
+
         object_expectations = {
-            "OpenObject": ("isOpen", True),
             "CloseObject": ("isOpen", False),
             "ToggleObjectOn": ("isToggled", True),
             "ToggleObjectOff": ("isToggled", False),

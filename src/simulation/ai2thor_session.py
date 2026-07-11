@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -205,7 +206,9 @@ class AI2ThorSessionManager:
         args: dict[str, Any] | None,
         actor: Literal["agent", "manual", "system"],
     ) -> dict[str, Any]:
-        before_metadata = getattr(session.last_event, "metadata", {}) or {}
+        before_metadata = copy.deepcopy(
+            getattr(session.last_event, "metadata", {}) or {}
+        )
         execution = self.executor.execute(
             session.controller,
             mode=session.mode,
@@ -213,8 +216,9 @@ class AI2ThorSessionManager:
             args=args,
             actor=actor,
         )
-        session.last_event = execution.event
-        after_metadata = getattr(execution.event, "metadata", {}) or {}
+        after_metadata = copy.deepcopy(
+            getattr(execution.event, "metadata", {}) or {}
+        )
         postcondition = self.postconditions.verify(
             action=execution.action,
             args=execution.args,
@@ -222,9 +226,17 @@ class AI2ThorSessionManager:
             after=after_metadata,
             runtime_success=execution.success,
         )
+        committed = bool(execution.success and postcondition.passed)
+        # AI2-THOR has already advanced to the returned event even when a
+        # semantic postcondition fails, so retain that real simulator state
+        # while reporting strict session commit success separately.
+        session.last_event = execution.event
         snapshot = self._snapshot(session, execution.event)
-        snapshot["execution"] = execution.to_dict()
+        execution_payload = execution.to_dict()
+        execution_payload["committed"] = committed
+        snapshot["execution"] = execution_payload
         snapshot["postcondition"] = postcondition.to_dict()
+        snapshot["committed"] = committed
         return snapshot
 
     def _snapshot(self, session: AI2ThorSession, event: Any) -> dict[str, Any]:
@@ -241,6 +253,9 @@ class AI2ThorSessionManager:
                 "isOpen": item.get("isOpen"),
                 "toggleable": item.get("toggleable"),
                 "isToggled": item.get("isToggled"),
+                "isPickedUp": item.get("isPickedUp"),
+                "parentReceptacles": item.get("parentReceptacles"),
+                "receptacleObjectIds": item.get("receptacleObjectIds"),
             }
             for item in metadata.get("objects", [])
             if item.get("visible")

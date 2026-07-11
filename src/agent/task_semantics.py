@@ -206,10 +206,41 @@ class TaskPlan:
                 },
             ]
         elif "navigate_to" in self.task_types:
-            complete = approach_verified and not missing_actions
+            put_requested = "PutObject" in self.required_actions
+            final_state = context.get("final_state") or {}
+            vase_id = str(final_state.get("vaseObjectId") or "")
+            box_id = str(final_state.get("boxObjectId") or "")
+            vase_parent_receptacles = {
+                str(value)
+                for value in final_state.get("vaseParentReceptacles") or []
+            }
+            box_receptacle_object_ids = {
+                str(value)
+                for value in final_state.get("boxReceptacleObjectIds") or []
+            }
+            inventory_objects = final_state.get("inventoryObjects") or []
+            put_final_state_verified = (
+                not put_requested
+                or (
+                    bool(vase_id)
+                    and bool(box_id)
+                    and box_id in vase_parent_receptacles
+                    and vase_id in box_receptacle_object_ids
+                    and not inventory_objects
+                )
+            )
+            complete = (
+                approach_verified
+                and not missing_actions
+                and put_final_state_verified
+            )
             reason = (
                 "target proximity and required interaction actions are verified"
+                if complete and not put_requested
+                else "target object is verified in the requested receptacle"
                 if complete
+                else "PutObject requires final receptacle metadata verification"
+                if put_requested and not put_final_state_verified
                 else "navigation proximity must be verified by the environment before termination"
             )
         else:
@@ -243,6 +274,12 @@ class TaskPlan:
             "approach_source": approach_source,
             "exit_verified": exit_verified,
             "exit_evidence": exit_evidence,
+            "put_final_state_verified": (
+                put_final_state_verified
+                if "put_final_state_verified" in locals()
+                else None
+            ),
+            "final_state": final_state if "final_state" in locals() else {},
             "agent_is_standing": agent_is_standing,
             "subgoal_progress": subgoal_progress,
         }

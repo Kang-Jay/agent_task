@@ -512,6 +512,12 @@ class AI2ThorVisualSearchDemo:
                         next_event.metadata
                     )
                 )
+                final_state = self._interaction_final_state(
+                    instruction=instruction,
+                    metadata=next_event.metadata,
+                )
+                if final_state:
+                    post_environment_context["final_state"] = final_state
                 if (
                     "navigate_to" in task_plan.task_types
                     and bound_target_object_id
@@ -947,6 +953,61 @@ class AI2ThorVisualSearchDemo:
                     matches.append((index, normalized))
                     break
         return [item[1] for item in sorted(matches)]
+
+    def _interaction_final_state(
+        self,
+        *,
+        instruction: str,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        target_terms = set(self._target_terms(instruction))
+        if not {"vase", "box"}.issubset(target_terms):
+            return None
+
+        objects = list(metadata.get("objects") or [])
+        vase = self._best_object_for_terms(objects, ["vase"])
+        box = self._best_object_for_terms(objects, ["box", "cardboardbox"])
+        if not vase or not box:
+            return None
+
+        return {
+            "vaseObjectId": str(vase.get("objectId") or ""),
+            "boxObjectId": str(box.get("objectId") or ""),
+            "vaseParentReceptacles": list(vase.get("parentReceptacles") or []),
+            "boxReceptacleObjectIds": list(box.get("receptacleObjectIds") or []),
+            "inventoryObjects": list(metadata.get("inventoryObjects") or []),
+            "source": "ai2thor_final_metadata",
+        }
+
+    def _best_object_for_terms(
+        self,
+        objects: list[dict[str, Any]],
+        terms: list[str],
+    ) -> dict[str, Any] | None:
+        candidates: list[dict[str, Any]] = []
+        for item in objects:
+            object_type = self._normalize(str(item.get("objectType") or ""))
+            object_id = str(item.get("objectId") or "")
+            if self._matches_target(object_type, object_id, terms):
+                candidates.append(item)
+        if not candidates:
+            return None
+        candidates.sort(
+            key=lambda item: (
+                not bool(item.get("visible")),
+                self._object_distance_sort_key(item),
+                str(item.get("objectId") or ""),
+            )
+        )
+        return candidates[0]
+
+    @staticmethod
+    def _object_distance_sort_key(item: dict[str, Any]) -> float:
+        try:
+            distance = float(item.get("distance"))
+        except (TypeError, ValueError):
+            return float("inf")
+        return distance if math.isfinite(distance) else float("inf")
 
     def _matches_target(self, object_type: str, object_id: str, terms: list[str]) -> bool:
         normalized_id = self._normalize(object_id)

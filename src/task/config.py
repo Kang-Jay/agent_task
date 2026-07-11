@@ -36,6 +36,20 @@ class AgentConfig:
         return float(self.raw["agent"]["target_visible_threshold"])
 
     @property
+    def visual_search_authority(self) -> str:
+        """Who decides visual-search target confirmation: 'vlm' or 'simulator'.
+
+        'vlm' (default): the VLM's own visual confirmation drives INSPECT/STOP,
+        while AI2-THOR instance segmentation is retained only as cross-validation
+        evidence. 'simulator': legacy behavior where segmentation ground truth
+        overrides the VLM decision.
+        """
+        value = str(
+            self.raw["agent"].get("visual_search_authority", "vlm")
+        ).strip().lower()
+        return value if value in {"vlm", "simulator"} else "vlm"
+
+    @property
     def history_window(self) -> int:
         return int(self.raw["agent"]["history_window"])
 

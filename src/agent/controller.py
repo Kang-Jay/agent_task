@@ -612,6 +612,8 @@ class EmbodiedSearchAgent:
                     "vision_input_used": bool(result.get("vision_input_used", False)),
                     "thought_summary": result.get("thought_summary"),
                     "task_progress": result.get("task_progress"),
+                    "target_visible": bool(result.get("target_visible", False)),
+                    "target_confidence": float(result.get("target_confidence", 0.0) or 0.0),
                 },
             )
 

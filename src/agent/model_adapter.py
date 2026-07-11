@@ -313,12 +313,18 @@ Return ONLY valid JSON with these fields:
 - confidence: float 0-1
 - stop_reason: null or string
 - task_progress: brief factual progress summary
+- target_visible: boolean — true ONLY if you can actually SEE the requested
+  target object in the current image right now
+- target_confidence: float 0-1 — your visual confidence that the target is
+  present and identifiable in the current image (0 if not visible)
 
 ACTION_NAME must be from the allowed list.
 Use the supplied action parameter schema exactly.
 Respect the task plan and unsupported-capability warnings.
 Do not choose STOP or Done unless completion_status.complete is true.
 Seeing the target is not task completion for navigation or interaction tasks.
+Judge target_visible strictly from what is actually rendered in the image; do
+not assume the target is present from the instruction alone.
 Never claim a physical action succeeded before environment feedback confirms it.
 Do not output hidden reasoning, only the final short summary."""
 
@@ -396,6 +402,16 @@ Do not output hidden reasoning, only the final short summary."""
                         "preconditions": [],
                         "expected_observation": f"Execute {action_type}"
                     }
+
+                # Normalize the VLM visual-confirmation signal so downstream
+                # consumers can rely on both fields always being present.
+                result["target_visible"] = bool(result.get("target_visible", False))
+                try:
+                    result["target_confidence"] = max(
+                        0.0, min(1.0, float(result.get("target_confidence", 0.0)))
+                    )
+                except (TypeError, ValueError):
+                    result["target_confidence"] = 0.0
 
                 result["provider_used"] = credential.provider
                 result["model_used"] = credential.model or "gpt-4o-mini"

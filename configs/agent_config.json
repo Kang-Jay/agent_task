@@ -30,7 +30,8 @@
     "stop_confidence_threshold": 0.78,
     "target_visible_threshold": 0.58,
     "exploration_confidence_floor": 0.18,
-    "default_turn_angle_degrees": 30
+    "default_turn_angle_degrees": 30,
+    "visual_search_authority": "vlm"
   },
   "vision": {
     "image_size": [448, 448],

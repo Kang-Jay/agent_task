@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from src.memory.episodic_store import EpisodicMemoryStore
+from src.memory.hierarchical_memory import (
+    EvidenceReference,
+    HierarchicalMemoryStore,
+    MEMORY_LAYERS,
+    normalize_identity,
+)
 from src.task.config import AgentConfig
 from src.types.schema import TaskExecutionPlan
 
@@ -23,6 +29,9 @@ class SessionState:
     negative_memory: list[str] = field(default_factory=list)
     explored_regions: dict[str, int] = field(default_factory=dict)
     retrieved_memories: list[dict[str, Any]] = field(default_factory=list)
+    layered_memories: dict[str, list[dict[str, Any]]] = field(
+        default_factory=lambda: {layer: [] for layer in MEMORY_LAYERS}
+    )
     execution_plan: TaskExecutionPlan | None = None
 
     def recent_steps(self, window: int) -> list[dict[str, Any]]:
@@ -40,6 +49,13 @@ class SessionMemory:
         self.episodic_store = EpisodicMemoryStore(
             self.trace_dir.parent / "memory" / "episodic_memory.sqlite3",
             capacity=int(config.raw["memory"]["long_term_capacity"]),
+        )
+        self.hierarchical_store = HierarchicalMemoryStore(
+            self.trace_dir.parent / "memory" / "hierarchical_memory.sqlite3",
+            capacity=int(config.raw["memory"]["long_term_capacity"]),
+            failure_capacity=int(
+                config.raw["memory"]["negative_memory_capacity"]
+            ),
         )
 
     def get_or_create(self, session_id: str, instruction: str) -> SessionState:
@@ -85,10 +101,23 @@ class SessionMemory:
             if self.config.raw["memory"]["persist_traces"]:
                 self._persist_trace(state)
 
-    def retrieve_relevant(self, state: SessionState) -> list[dict[str, Any]]:
-        state.retrieved_memories = self.episodic_store.search(
+    def retrieve_relevant(
+        self,
+        state: SessionState,
+        environment_context: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        query = self._memory_query(
             state.instruction,
+            environment_context=environment_context,
+        )
+        state.retrieved_memories = self.episodic_store.search(
+            query,
             namespace=MEMORY_NAMESPACE,
+            top_k=int(self.config.raw["memory"]["retrieval_top_k"]),
+            exclude_session_id=state.session_id,
+        )
+        state.layered_memories = self.hierarchical_store.search_grouped(
+            query,
             top_k=int(self.config.raw["memory"]["retrieval_top_k"]),
             exclude_session_id=state.session_id,
         )
@@ -312,6 +341,19 @@ class SessionMemory:
                 },
             )
             step["episodic_memory_id"] = memory_id
+        if "hierarchical_memory_ids" not in step:
+            step["hierarchical_memory_ids"] = self._record_hierarchical_commit(
+                state,
+                step,
+                executed_action=executed_action,
+                action_success=action_success,
+                confidence=confidence,
+                planner_source=planner_source,
+                skill_call=skill_call,
+                robot_before=robot_before,
+                robot_after=robot_after,
+                environment=environment,
+            )
 
         if self.config.raw["memory"]["persist_traces"]:
             self._persist_trace(state)
@@ -349,6 +391,15 @@ class SessionMemory:
                 completion_status,
                 step_id=step_id,
             )
+            finalized_ids = self._record_hierarchical_finalization(
+                state,
+                step,
+                completion_status=completion_status,
+                environment_context=environment_context,
+            )
+            step.setdefault("hierarchical_memory_ids", {}).update(
+                finalized_ids
+            )
             if self.config.raw["memory"]["persist_traces"]:
                 self._persist_trace(state)
             return state
@@ -363,10 +414,14 @@ class SessionMemory:
             if state.execution_plan is not None
             else None
         )
+        recalled_layered = sum(
+            len(items) for items in state.layered_memories.values()
+        )
         return (
             f"{len(state.steps)} steps recorded. Last action={last.get('action', {}).get('type')}; "
             f"explored regions={explored or 'none'}; negative memories={len(state.negative_memory)}; "
             f"recalled episodes={len(state.retrieved_memories)}; "
+            f"recalled layered memories={recalled_layered}; "
             f"current subgoal={current_subgoal or 'none'}."
         )
 
@@ -399,6 +454,10 @@ class SessionMemory:
             "confidence_by_region": confidence_by_region,
             "negative_memory": list(state.negative_memory),
             "recalled_memories": list(state.retrieved_memories),
+            "layered_memories": {
+                layer: list(items)
+                for layer, items in state.layered_memories.items()
+            },
         }
 
     def confidence_trace(self, state: SessionState) -> list[float]:
@@ -419,6 +478,7 @@ class SessionMemory:
             "negative_memory": state.negative_memory,
             "explored_regions": state.explored_regions,
             "retrieved_memories": state.retrieved_memories,
+            "layered_memories": state.layered_memories,
             "execution_plan": (
                 state.execution_plan.to_dict()
                 if state.execution_plan is not None
@@ -435,6 +495,7 @@ class SessionMemory:
             "negative_memory": state.negative_memory,
             "explored_regions": state.explored_regions,
             "retrieved_memories": state.retrieved_memories,
+            "layered_memories": state.layered_memories,
             "execution_plan": (
                 state.execution_plan.to_dict()
                 if state.execution_plan is not None
@@ -442,6 +503,449 @@ class SessionMemory:
             ),
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _record_hierarchical_commit(
+        self,
+        state: SessionState,
+        step: dict[str, Any],
+        *,
+        executed_action: dict[str, Any],
+        action_success: bool,
+        confidence: float,
+        planner_source: str,
+        skill_call: dict[str, Any] | None,
+        robot_before: dict[str, float] | None,
+        robot_after: dict[str, float] | None,
+        environment: dict[str, Any] | None,
+    ) -> dict[str, int]:
+        step_id = int(step.get("step_id", 0))
+        action_type = str(executed_action.get("type") or "UNKNOWN")
+        best = step.get("best_candidate") or {}
+        scene = self._scene_name(environment)
+        evidence = self._evidence_reference(
+            state,
+            step,
+            source="execution_commit",
+            environment=environment,
+        )
+        common_metadata = {
+            "action": action_type,
+            "action_args": dict(executed_action.get("args") or {}),
+            "planner_source": planner_source,
+            "region": best.get("region"),
+            "scene": scene,
+        }
+        memory_ids: dict[str, int] = {}
+
+        memory_ids["episode"] = self.hierarchical_store.upsert(
+            layer="episode",
+            identity_key=f"{state.session_id}:{step_id}",
+            session_id=state.session_id,
+            instruction=state.instruction,
+            subject=f"step {step_id}",
+            summary=self._build_lesson(
+                action=action_type,
+                action_success=bool(action_success),
+                done=bool(step.get("done")),
+                confidence=float(confidence),
+                region=best.get("region"),
+            ),
+            evidence=evidence,
+            success=bool(action_success),
+            confidence=float(confidence),
+            metadata=common_metadata,
+        )
+
+        task_subgoal = (
+            state.execution_plan.current_subgoal_id
+            if state.execution_plan is not None
+            else "unplanned"
+        )
+        memory_ids["task"] = self.hierarchical_store.upsert(
+            layer="task",
+            identity_key=normalize_identity(
+                {
+                    "instruction": state.instruction,
+                    "subgoal": task_subgoal,
+                }
+            ),
+            session_id=state.session_id,
+            instruction=state.instruction,
+            subject=str(task_subgoal),
+            summary=(
+                f"Task subgoal {task_subgoal} executed {action_type}; "
+                f"environment success={bool(action_success)}."
+            ),
+            evidence=evidence,
+            success=bool(action_success),
+            confidence=float(confidence),
+            metadata={
+                **common_metadata,
+                "subgoal": task_subgoal,
+                "execution_plan_status": (
+                    state.execution_plan.status
+                    if state.execution_plan is not None
+                    else None
+                ),
+            },
+        )
+
+        if best:
+            object_subject = str(
+                best.get("objectId")
+                or best.get("object_id")
+                or best.get("label")
+                or "visual_candidate"
+            )
+            memory_ids["object"] = self.hierarchical_store.upsert(
+                layer="object",
+                identity_key=normalize_identity(
+                    {
+                        "scene": scene,
+                        "subject": object_subject,
+                        "region": best.get("region"),
+                    }
+                ),
+                session_id=state.session_id,
+                instruction=state.instruction,
+                subject=object_subject,
+                summary=(
+                    f"Observed {object_subject} in "
+                    f"{best.get('region') or 'unknown region'} with "
+                    f"confidence {float(confidence):.3f}."
+                ),
+                evidence=evidence,
+                confidence=float(confidence),
+                metadata={
+                    **common_metadata,
+                    "candidate": dict(best),
+                },
+            )
+
+        if robot_after or best.get("region") or scene:
+            spatial_identity = {
+                "scene": scene,
+                "robot_after": robot_after,
+                "region": best.get("region"),
+            }
+            memory_ids["spatial"] = self.hierarchical_store.upsert(
+                layer="spatial",
+                identity_key=normalize_identity(spatial_identity),
+                session_id=state.session_id,
+                instruction=state.instruction,
+                subject=scene or str(best.get("region") or "unknown"),
+                summary=(
+                    f"After {action_type}, robot pose={robot_after or 'unknown'}; "
+                    f"observed region={best.get('region') or 'unknown'}."
+                ),
+                evidence=evidence,
+                success=bool(action_success),
+                confidence=float(confidence),
+                metadata={
+                    **common_metadata,
+                    "robot_before": robot_before,
+                    "robot_after": robot_after,
+                },
+            )
+
+        if skill_call:
+            skill_name = str(skill_call.get("name") or action_type)
+            skill_args = dict(skill_call.get("args") or {})
+            memory_ids["skill"] = self.hierarchical_store.upsert(
+                layer="skill",
+                identity_key=normalize_identity(
+                    {
+                        "name": skill_name,
+                        "args": skill_args,
+                        "success": bool(action_success),
+                    }
+                ),
+                session_id=state.session_id,
+                instruction=state.instruction,
+                subject=skill_name,
+                summary=(
+                    f"Skill {skill_name} executed with "
+                    f"success={bool(action_success)}."
+                ),
+                evidence=evidence,
+                success=bool(action_success),
+                confidence=float(confidence),
+                metadata={
+                    **common_metadata,
+                    "skill_call": dict(skill_call),
+                },
+            )
+
+        if not action_success:
+            failure_reason = self._failure_reason(
+                step=step,
+                environment=environment,
+            )
+            memory_ids["failure"] = self.hierarchical_store.upsert(
+                layer="failure",
+                identity_key=normalize_identity(
+                    {
+                        "scene": scene,
+                        "action": action_type,
+                        "args": executed_action.get("args") or {},
+                        "reason": failure_reason,
+                    }
+                ),
+                session_id=state.session_id,
+                instruction=state.instruction,
+                subject=action_type,
+                summary=(
+                    f"{action_type} failed: {failure_reason}. "
+                    "Verify preconditions before retrying."
+                ),
+                evidence=evidence,
+                success=False,
+                confidence=float(confidence),
+                metadata={
+                    **common_metadata,
+                    "failure_reason": failure_reason,
+                },
+            )
+        return memory_ids
+
+    def _record_hierarchical_finalization(
+        self,
+        state: SessionState,
+        step: dict[str, Any],
+        *,
+        completion_status: dict[str, Any],
+        environment_context: dict[str, Any] | None,
+    ) -> dict[str, int]:
+        step_id = int(step.get("step_id", 0))
+        action = step.get("executed_action") or step.get("action") or {}
+        action_type = str(action.get("type") or "UNKNOWN")
+        confidence = float(step.get("confidence", 0.0))
+        scene = self._scene_name(environment_context)
+        evidence = self._evidence_reference(
+            state,
+            step,
+            source="execution_finalization",
+            environment=environment_context,
+        )
+        current_subgoal = (
+            state.execution_plan.current_subgoal_id
+            if state.execution_plan is not None
+            else None
+        )
+        memory_ids: dict[str, int] = {}
+
+        memory_ids["task_final"] = self.hierarchical_store.upsert(
+            layer="task",
+            identity_key=normalize_identity(
+                {
+                    "instruction": state.instruction,
+                    "subgoal": current_subgoal or "completed",
+                }
+            ),
+            session_id=state.session_id,
+            instruction=state.instruction,
+            subject=current_subgoal or "completed",
+            summary=(
+                f"Task completion={bool(completion_status.get('complete'))}; "
+                f"reason={completion_status.get('reason') or 'not provided'}."
+            ),
+            evidence=evidence,
+            success=bool(completion_status.get("complete")),
+            confidence=confidence,
+            metadata={
+                "action": action_type,
+                "scene": scene,
+                "completion_status": dict(completion_status),
+            },
+        )
+        memory_ids["episode_final"] = self.hierarchical_store.upsert(
+            layer="episode",
+            identity_key=f"{state.session_id}:{step_id}",
+            session_id=state.session_id,
+            instruction=state.instruction,
+            subject=f"step {step_id}",
+            summary=(
+                f"{action_type} environment success="
+                f"{bool(step.get('action_success'))}; task completion="
+                f"{bool(completion_status.get('complete'))}."
+            ),
+            evidence=evidence,
+            success=bool(step.get("action_success")),
+            confidence=confidence,
+            metadata={
+                "action": action_type,
+                "scene": scene,
+                "completion_status": dict(completion_status),
+            },
+        )
+
+        context = environment_context or {}
+        agent_pose = context.get("agent")
+        if isinstance(agent_pose, dict):
+            memory_ids["spatial_final"] = self.hierarchical_store.upsert(
+                layer="spatial",
+                identity_key=normalize_identity(
+                    {
+                        "scene": scene,
+                        "agent": agent_pose,
+                    }
+                ),
+                session_id=state.session_id,
+                instruction=state.instruction,
+                subject=scene or "agent_pose",
+                summary=(
+                    f"Verified agent state in {scene or 'unknown scene'}: "
+                    f"{agent_pose}."
+                ),
+                evidence=evidence,
+                success=bool(step.get("action_success")),
+                confidence=confidence,
+                metadata={
+                    "action": action_type,
+                    "scene": scene,
+                    "agent": dict(agent_pose),
+                },
+            )
+
+        objects = context.get("objects")
+        if isinstance(objects, list):
+            for index, item in enumerate(objects):
+                if not isinstance(item, dict):
+                    continue
+                if item.get("visible") is False:
+                    continue
+                object_id = str(
+                    item.get("objectId")
+                    or item.get("object_id")
+                    or item.get("objectType")
+                    or item.get("object_type")
+                    or f"object-{index}"
+                )
+                object_type = str(
+                    item.get("objectType")
+                    or item.get("object_type")
+                    or object_id
+                )
+                memory_ids[f"object_final_{index}"] = (
+                    self.hierarchical_store.upsert(
+                        layer="object",
+                        identity_key=normalize_identity(
+                            {
+                                "scene": scene,
+                                "object_id": object_id,
+                            }
+                        ),
+                        session_id=state.session_id,
+                        instruction=state.instruction,
+                        subject=object_id,
+                        summary=(
+                            f"Verified visible {object_type} "
+                            f"with objectId={object_id}."
+                        ),
+                        evidence=evidence,
+                        confidence=confidence,
+                        metadata={
+                            "action": action_type,
+                            "scene": scene,
+                            "object": dict(item),
+                        },
+                    )
+                )
+        return memory_ids
+
+    def _evidence_reference(
+        self,
+        state: SessionState,
+        step: dict[str, Any],
+        *,
+        source: str,
+        environment: dict[str, Any] | None,
+    ) -> EvidenceReference:
+        step_id = int(step.get("step_id", 0))
+        context = environment or {}
+        details = {
+            "action": (
+                step.get("executed_action")
+                or step.get("action")
+                or {}
+            ),
+            "action_success": step.get("action_success"),
+            "planner_source": step.get("planner_source"),
+            "scene": self._scene_name(context),
+        }
+        for field in (
+            "observation_path",
+            "observation_phase",
+            "backend",
+        ):
+            if field in context:
+                details[field] = context[field]
+        return EvidenceReference(
+            session_id=state.session_id,
+            step_id=step_id,
+            source=source,
+            reference=f"{self._trace_path(state.session_id)}#step={step_id}",
+            details=details,
+        )
+
+    @staticmethod
+    def _scene_name(context: dict[str, Any] | None) -> str | None:
+        payload = context or {}
+        scene = payload.get("scene") or payload.get("scene_name")
+        if scene:
+            return str(scene)
+        environment = payload.get("environment")
+        if isinstance(environment, dict):
+            nested = environment.get("scene") or environment.get("scene_name")
+            if nested:
+                return str(nested)
+        return None
+
+    @staticmethod
+    def _failure_reason(
+        *,
+        step: dict[str, Any],
+        environment: dict[str, Any] | None,
+    ) -> str:
+        payload = environment or {}
+        for key in (
+            "errorMessage",
+            "error_message",
+            "failure_reason",
+            "lastActionError",
+        ):
+            if payload.get(key):
+                return str(payload[key])
+        completion = step.get("completion_status") or {}
+        if completion.get("reason"):
+            return str(completion["reason"])
+        return "environment reported action_success=false"
+
+    @staticmethod
+    def _memory_query(
+        instruction: str,
+        *,
+        environment_context: dict[str, Any] | None,
+    ) -> str:
+        context = environment_context or {}
+        parts = [instruction]
+        scene = context.get("scene") or context.get("scene_name")
+        if scene:
+            parts.append(str(scene))
+        objects = context.get("objects")
+        if isinstance(objects, list):
+            for item in objects:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("visible") is False:
+                    continue
+                object_type = item.get("objectType") or item.get("object_type")
+                object_id = item.get("objectId") or item.get("object_id")
+                if object_type:
+                    parts.append(str(object_type))
+                if object_id:
+                    parts.append(str(object_id))
+        return " ".join(part for part in parts if part)
 
     @staticmethod
     def _build_lesson(

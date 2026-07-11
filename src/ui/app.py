@@ -18,7 +18,11 @@ from src.simulation.ai2thor_actions import AI2ThorActionCatalog
 from src.simulation.ai2thor_adapter import AI2ThorVisualSearchDemo, ai2thor_environment_report
 from src.simulation.ai2thor_session import AI2ThorSessionManager
 from src.simulation.room_simulator import RoomSimulator
-from src.simulation.stream_protocol import encode_ndjson
+from src.simulation.stream_protocol import (
+    PROTOCOL_VERSION,
+    StreamCancelled,
+    encode_ndjson,
+)
 from src.types.schema import AgentRequest
 
 
@@ -40,6 +44,7 @@ action_catalog = AI2ThorActionCatalog()
 simulator_sessions = AI2ThorSessionManager(catalog=action_catalog)
 active_stream_sessions: set[str] = set()
 active_live_sessions: set[str] = set()
+active_stream_runs: dict[str, dict[str, Any]] = {}
 active_stream_lock = threading.Lock()
 simulator_slot = threading.BoundedSemaphore(1)
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,6 +57,121 @@ def _fresh_agent() -> EmbodiedSearchAgent:
         config=agent.config,
         model_adapter=agent.model_adapter,
     )
+
+
+_TERMINAL_STREAM_EVENTS = frozenset(
+    {"terminal", "episode_completed", "episode_cancelled", "error"}
+)
+
+
+def _result_completion(result: Any) -> tuple[bool, str]:
+    if not isinstance(result, dict):
+        return False, "run_completed_without_task_verification"
+    completion = result.get("completion_status")
+    steps = result.get("steps")
+    if not isinstance(completion, dict) and isinstance(steps, list) and steps:
+        last_step = steps[-1]
+        if isinstance(last_step, dict):
+            completion = last_step.get("completion_status")
+    if not isinstance(completion, dict):
+        return False, "run_completed_without_task_verification"
+    task_success = bool(completion.get("complete", False))
+    terminal_reason = str(
+        completion.get("reason")
+        or completion.get("outcome")
+        or ("task_completed" if task_success else "task_incomplete")
+    )
+    return task_success, terminal_reason
+
+
+def _normalize_stream_message(
+    message: dict[str, Any],
+    *,
+    run_id: str,
+    episode_id: str,
+) -> dict[str, Any]:
+    normalized = dict(message)
+    event = str(normalized.get("event") or "message")
+    payload = normalized.get("payload")
+    payload = dict(payload) if isinstance(payload, dict) else {}
+    normalized["event"] = event
+    normalized["protocol_version"] = PROTOCOL_VERSION
+    normalized["run_id"] = run_id
+    normalized["episode_id"] = episode_id
+    payload["run_id"] = run_id
+    payload["episode_id"] = episode_id
+    normalized["payload"] = payload
+    normalized["terminal"] = event in _TERMINAL_STREAM_EVENTS
+    if not normalized["terminal"]:
+        return normalized
+
+    if event == "terminal":
+        raw_task_success = normalized.get("task_success")
+        if not isinstance(raw_task_success, bool):
+            raw_task_success = payload.get("task_success")
+        task_success = (
+            raw_task_success if isinstance(raw_task_success, bool) else False
+        )
+        terminal_reason = str(
+            normalized.get("terminal_reason")
+            or payload.get("terminal_reason")
+            or "terminal_status_missing"
+        )
+    elif event == "episode_completed":
+        task_success, terminal_reason = _result_completion(payload.get("result"))
+    elif event == "episode_cancelled":
+        task_success = False
+        terminal_reason = str(payload.get("terminal_reason") or "cancelled")
+    else:
+        task_success = False
+        terminal_reason = str(payload.get("terminal_reason") or "internal_error")
+    normalized["task_success"] = task_success
+    normalized["terminal_reason"] = terminal_reason
+    payload["task_success"] = task_success
+    payload["terminal_reason"] = terminal_reason
+    return normalized
+
+
+def _stream_source_sequence(message: dict[str, Any]) -> int | None:
+    source_sequence = message.get("event_seq", message.get("sequence"))
+    if isinstance(source_sequence, bool):
+        return None
+    if isinstance(source_sequence, int):
+        return source_sequence
+    if isinstance(source_sequence, str):
+        stripped = source_sequence.strip()
+        if stripped.lstrip("-").isdigit():
+            return int(stripped)
+    return None
+
+
+def _cancel_stream_run(run_id: str) -> dict[str, Any] | None:
+    with active_stream_lock:
+        state = active_stream_runs.get(run_id)
+        if state is None:
+            return None
+        if state["status"] == "terminal":
+            return {
+                "run_id": run_id,
+                "episode_id": state["episode_id"],
+                "session_id": state["session_id"],
+                "cancel_requested": False,
+                "already_requested": bool(state["cancel_requested"]),
+                "already_terminal": True,
+                "terminal_reason": state.get("terminal_reason"),
+            }
+        already_requested = bool(state["cancel_event"].is_set())
+        state["cancel_event"].set()
+        state["cancel_requested"] = True
+        state["status"] = "cancel_requested"
+        return {
+            "run_id": run_id,
+            "episode_id": state["episode_id"],
+            "session_id": state["session_id"],
+            "cancel_requested": True,
+            "already_requested": already_requested,
+            "already_terminal": False,
+        }
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -294,6 +414,12 @@ async def stream_ai2thor_demo(
             detail={"message": status.message, "status": status.to_dict()},
         )
 
+    run_id = uuid.uuid4().hex
+    episode_id = uuid.uuid4().hex
+    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+    cancel_event = threading.Event()
+    loop = asyncio.get_running_loop()
+
     with active_stream_lock:
         if session_id in active_stream_sessions:
             raise HTTPException(
@@ -306,18 +432,106 @@ async def stream_ai2thor_demo(
                 detail="AI2-THOR runtime is busy with another Unity controller",
             )
         active_stream_sessions.add(session_id)
-
-    episode_id = uuid.uuid4().hex
-    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-    cancel_event = threading.Event()
-    loop = asyncio.get_running_loop()
+        active_stream_runs[run_id] = {
+            "run_id": run_id,
+            "episode_id": episode_id,
+            "session_id": session_id,
+            "cancel_event": cancel_event,
+            "cancel_requested": False,
+            "terminal_emitted": False,
+            "terminal_reason": None,
+            "pending_terminal": None,
+            "status": "running",
+            "last_source_sequence": -1,
+            "seen_source_event_ids": set(),
+            "next_sequence": 0,
+        }
 
     def emit(message: dict[str, Any]) -> None:
-        loop.call_soon_threadsafe(queue.put_nowait, message)
+        normalized = _normalize_stream_message(
+            message,
+            run_id=run_id,
+            episode_id=episode_id,
+        )
+        source_sequence = _stream_source_sequence(normalized)
+        source_event_id = normalized.get("event_id")
+        with active_stream_lock:
+            state = active_stream_runs.get(run_id)
+            if state is None or state["terminal_emitted"]:
+                return
+            if state["pending_terminal"] is not None:
+                return
+            if source_event_id:
+                source_event_id = str(source_event_id)
+                if source_event_id in state["seen_source_event_ids"]:
+                    return
+                state["seen_source_event_ids"].add(source_event_id)
+            if source_sequence is not None:
+                if source_sequence <= state["last_source_sequence"]:
+                    return
+                state["last_source_sequence"] = source_sequence
+            if normalized["terminal"]:
+                if state["pending_terminal"] is None:
+                    state["pending_terminal"] = normalized
+                return
+            sequence = state["next_sequence"]
+            state["next_sequence"] += 1
+            normalized["sequence"] = sequence
+            normalized["event_seq"] = sequence
+            normalized["event_id"] = f"{run_id}:{episode_id}:{sequence}"
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, normalized)
+        except RuntimeError:
+            cancel_event.set()
+
+    def publish_terminal(message: dict[str, Any]) -> None:
+        normalized = _normalize_stream_message(
+            message,
+            run_id=run_id,
+            episode_id=episode_id,
+        )
+        if not normalized["terminal"]:
+            raise ValueError("publish_terminal requires a terminal stream event")
+        with active_stream_lock:
+            state = active_stream_runs.get(run_id)
+            if state is None or state["terminal_emitted"]:
+                return
+            sequence = state["next_sequence"]
+            state["next_sequence"] += 1
+            normalized["sequence"] = sequence
+            normalized["event_seq"] = sequence
+            normalized["event_id"] = f"{run_id}:{episode_id}:{sequence}"
+            state["terminal_emitted"] = True
+            state["terminal_reason"] = normalized["terminal_reason"]
+            state["pending_terminal"] = None
+            state["status"] = "terminal"
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, normalized)
+        except RuntimeError:
+            cancel_event.set()
+
+    def terminal_message(
+        event: str,
+        **terminal_payload: Any,
+    ) -> dict[str, Any]:
+        return {
+            "event": event,
+            "episode_id": episode_id,
+            "payload": terminal_payload,
+        }
+
+    def pending_terminal() -> dict[str, Any] | None:
+        with active_stream_lock:
+            state = active_stream_runs.get(run_id)
+            if state is None:
+                return None
+            pending = state.get("pending_terminal")
+            return dict(pending) if isinstance(pending, dict) else None
 
     def worker() -> None:
+        result = None
         try:
-            AI2ThorVisualSearchDemo(
+            result = AI2ThorVisualSearchDemo(
                 scene=scene,
                 agent=_fresh_agent(),
                 agent_mode=agent_mode,
@@ -331,21 +545,77 @@ async def stream_ai2thor_demo(
                 emit=emit,
                 cancel_event=cancel_event,
             )
+        except StreamCancelled as exc:
+            pending = pending_terminal()
+            if pending is None:
+                pending = terminal_message(
+                    "episode_cancelled",
+                    message=str(exc),
+                    terminal_reason="cancelled",
+                )
+            publish_terminal(pending)
+        except Exception as exc:
+            pending = pending_terminal()
+            if pending is None:
+                pending = terminal_message(
+                    "error",
+                    error_type=type(exc).__name__,
+                    message=str(exc),
+                    terminal_reason="internal_error",
+                )
+            publish_terminal(pending)
+        else:
+            pending = pending_terminal()
+            if pending is not None:
+                publish_terminal(pending)
+            elif cancel_event.is_set():
+                if pending is None or pending.get("event") not in {
+                    "terminal",
+                    "episode_cancelled",
+                }:
+                    pending = terminal_message(
+                        "episode_cancelled",
+                        message="AI2-THOR run cancelled by client",
+                        terminal_reason="cancelled",
+                    )
+                publish_terminal(pending)
+            elif result is not None:
+                result_payload = (
+                    result.to_dict() if hasattr(result, "to_dict") else result
+                )
+                publish_terminal(
+                    terminal_message(
+                        "episode_completed",
+                        result=result_payload,
+                    )
+                )
+            else:
+                publish_terminal(
+                    terminal_message(
+                        "error",
+                        error_type="RuntimeError",
+                        message="AI2-THOR worker ended without a result",
+                        terminal_reason="worker_ended_without_result",
+                    )
+                )
         finally:
             with active_stream_lock:
                 active_stream_sessions.discard(session_id)
             simulator_slot.release()
-            loop.call_soon_threadsafe(queue.put_nowait, None)
+            try:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+            except RuntimeError:
+                pass
 
     async def event_stream():
         worker_task = asyncio.create_task(asyncio.to_thread(worker))
         try:
             while True:
+                if await request.is_disconnected():
+                    _cancel_stream_run(run_id)
                 try:
                     message = await asyncio.wait_for(queue.get(), timeout=0.25)
                 except asyncio.TimeoutError:
-                    if await request.is_disconnected():
-                        cancel_event.set()
                     if worker_task.done() and queue.empty():
                         break
                     continue
@@ -355,9 +625,11 @@ async def stream_ai2thor_demo(
         finally:
             cancel_event.set()
             try:
-                await worker_task
-            except Exception:
+                await asyncio.shield(worker_task)
+            except (asyncio.CancelledError, Exception):
                 pass
+            with active_stream_lock:
+                active_stream_runs.pop(run_id, None)
 
     return StreamingResponse(
         event_stream(),
@@ -365,9 +637,21 @@ async def stream_ai2thor_demo(
         headers={
             "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",
+            "X-Run-Id": run_id,
             "X-Episode-Id": episode_id,
         },
     )
+
+
+@app.post("/api/demo/ai2thor/stream/{run_id}/cancel")
+def cancel_ai2thor_stream(run_id: str) -> dict[str, Any]:
+    result = _cancel_stream_run(run_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"AI2-THOR stream run is not active: {run_id}",
+        )
+    return result
 
 
 @app.get("/api/agent/export/{session_id}")

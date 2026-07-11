@@ -160,6 +160,35 @@
     .status.ok { border-color: #2d6a50; color: var(--green); }
     .status.error { border-color: #733e42; color: #ffaaa5; }
     .status.busy { border-color: #735d2c; color: var(--amber); }
+    .run-progress {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 9px;
+    }
+    .run-progress-track {
+      height: 7px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--surface-3);
+    }
+    .run-progress-bar {
+      width: 0;
+      height: 100%;
+      background: var(--cyan);
+      transition: width .18s ease, background-color .18s ease;
+    }
+    .run-progress-bar.success { background: var(--green); }
+    .run-progress-bar.failure,
+    .run-progress-bar.cancelled { background: var(--red); }
+    .run-progress-label {
+      min-width: 102px;
+      color: var(--muted);
+      font-size: 11px;
+      text-align: right;
+    }
     .action-meta {
       margin-top: 8px;
       color: var(--muted);
@@ -419,6 +448,20 @@
 
       <div class="section">
         <div class="section-title"><span>运行状态</span><span id="phase">idle</span></div>
+        <div class="run-progress">
+          <div
+            class="run-progress-track"
+            id="runProgress"
+            role="progressbar"
+            aria-label="Agent 运行阶段"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+          >
+            <div class="run-progress-bar" id="runProgressBar"></div>
+          </div>
+          <div class="run-progress-label" id="runProgressLabel">等待启动 · 0%</div>
+        </div>
         <div class="status" id="status">等待任务。</div>
       </div>
     </aside>
@@ -500,15 +543,140 @@
     let actionCatalog = [];
     let filteredActions = [];
     let streamController = null;
+    let activeStreamRun = null;
+    let streamGeneration = 0;
     let currentTaskPlan = {};
 
     const $ = id => document.getElementById(id);
     const asset = path => path ? "/" + String(path).replaceAll("\\", "/") : "";
     const pretty = value => JSON.stringify(value ?? {}, null, 2);
+    const TERMINAL_STREAM_EVENTS = new Set([
+      "episode_completed",
+      "episode_cancelled",
+      "error",
+      "terminal"
+    ]);
+    const RUN_STAGE_LABELS = {
+      idle: "等待启动",
+      initialization: "初始化",
+      observation: "观察",
+      planning: "规划",
+      execution: "执行",
+      feedback: "反馈",
+      success: "成功",
+      failure: "失败",
+      cancelled: "取消"
+    };
 
     function setStatus(message, kind = "") {
       $("status").textContent = message;
       $("status").className = `status ${kind}`.trim();
+    }
+
+    function setRunStage(stage, progress, detail = "") {
+      const normalizedProgress = Math.max(0, Math.min(100, Number(progress) || 0));
+      const label = RUN_STAGE_LABELS[stage] || stage;
+      $("phase").textContent = label;
+      $("runProgress").setAttribute("aria-valuenow", String(normalizedProgress));
+      $("runProgressBar").style.width = `${normalizedProgress}%`;
+      $("runProgressBar").className =
+        `run-progress-bar ${["success", "failure", "cancelled"].includes(stage) ? stage : ""}`.trim();
+      $("runProgressLabel").textContent =
+        `${detail ? `${detail} · ` : ""}${label} · ${normalizedProgress}%`;
+    }
+
+    function newClientRunId() {
+      if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+      return `ui-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    function isCurrentStreamRun(context) {
+      return Boolean(
+        context &&
+        activeStreamRun === context &&
+        context.generation === streamGeneration
+      );
+    }
+
+    function cancelStreamRun(context, {showCancelled = false, reason = ""} = {}) {
+      if (!context || context.terminalConsumed) return;
+      context.cancelRequested = true;
+      context.terminalConsumed = true;
+      if (context.runId) {
+        void fetch(
+          `/api/demo/ai2thor/stream/${encodeURIComponent(context.runId)}/cancel`,
+          {method: "POST", keepalive: true}
+        ).catch(() => {});
+      }
+      context.controller?.abort();
+      if (isCurrentStreamRun(context) && showCancelled) {
+        setRunStage("cancelled", 100, "任务终止");
+        $("modelBadge").textContent = "模型待机";
+        setStatus(reason || "已取消当前 Agent 运行。", "error");
+      }
+    }
+
+    function invalidateActiveStreamRun() {
+      cancelStreamRun(activeStreamRun);
+      activeStreamRun = null;
+      streamController = null;
+      streamGeneration += 1;
+    }
+
+    function beginStreamRun() {
+      cancelStreamRun(activeStreamRun);
+      const controller = new AbortController();
+      const context = {
+        clientRunId: newClientRunId(),
+        runId: null,
+        episodeId: null,
+        generation: ++streamGeneration,
+        lastEventSeq: -1,
+        seenEventIds: new Set(),
+        terminalConsumed: false,
+        cancelRequested: false,
+        controller
+      };
+      activeStreamRun = context;
+      streamController = controller;
+      return context;
+    }
+
+    function streamIdentity(message, payload) {
+      const metadata = message.metadata || message.meta || {};
+      return {
+        runId: message.run_id ?? metadata.run_id ?? payload.run_id ?? null,
+        episodeId:
+          message.episode_id ?? metadata.episode_id ?? payload.episode_id ?? null,
+        eventSeq:
+          message.event_seq ?? metadata.event_seq ?? payload.event_seq ?? null,
+        eventId: message.event_id ?? metadata.event_id ?? payload.event_id ?? null
+      };
+    }
+
+    function shouldAcceptStreamEvent(message, context) {
+      if (!isCurrentStreamRun(context) || context.terminalConsumed) return false;
+      const payload = message.payload || {};
+      const {runId, episodeId, eventSeq, eventId} = streamIdentity(message, payload);
+
+      if (runId && context.runId && runId !== context.runId) return false;
+      if (episodeId && context.episodeId && episodeId !== context.episodeId) return false;
+      if (runId && !context.runId) context.runId = runId;
+      if (episodeId && !context.episodeId) context.episodeId = episodeId;
+      if (eventId) {
+        const eventKey = String(eventId);
+        if (context.seenEventIds.has(eventKey)) return false;
+        context.seenEventIds.add(eventKey);
+      }
+
+      if (eventSeq !== null && eventSeq !== undefined && eventSeq !== "") {
+        const numericSeq = Number(eventSeq);
+        if (Number.isFinite(numericSeq)) {
+          if (numericSeq <= context.lastEventSeq) return false;
+          context.lastEventSeq = numericSeq;
+        }
+      }
+      return true;
     }
 
     function setImage(id, emptyId, source) {
@@ -585,23 +753,81 @@
       ].join("\n");
     }
 
-    function applyStreamEvent(message) {
+    function consumeTerminalEvent(message, context) {
       const event = message.event;
       const payload = message.payload || {};
+      context.terminalConsumed = true;
+      const result = payload.result || {};
+      const finalStep = steps[steps.length - 1] || {};
+      const explicitSuccess =
+        payload.task_success ?? message.task_success ?? result.task_success;
+      const verified = explicitSuccess === undefined
+        ? Boolean(finalStep.completion_status?.complete)
+        : Boolean(explicitSuccess);
+      const terminalReason =
+        payload.terminal_reason ||
+        message.terminal_reason ||
+        payload.message ||
+        payload.reason ||
+        finalStep.completion_status?.reason ||
+        finalStep.task_plan?.clarification ||
+        "完成条件未通过验证";
+      const cancelled =
+        event === "episode_cancelled" ||
+        payload.status === "cancelled" ||
+        message.status === "cancelled";
+
+      if (result.video_path) {
+        $("video").src = asset(result.video_path) + `?t=${Date.now()}`;
+        $("videoState").textContent = "已生成";
+      }
+      $("modelBadge").textContent = event === "error" ? "模型错误" : "模型待机";
+
+      if (cancelled) {
+        setRunStage("cancelled", 100, "任务终止");
+        setStatus(terminalReason || "Agent 已停止。", "error");
+      } else if (event === "error" || !verified) {
+        setRunStage("failure", 100, "任务终止");
+        const errorPrefix = event === "error"
+          ? `${payload.error_type || "Error"}: `
+          : "任务未完成：";
+        setStatus(`${errorPrefix}${terminalReason}。已记录 ${steps.length} 个步骤。`, "error");
+      } else {
+        setRunStage("success", 100, "任务终止");
+        setStatus(
+          `任务已验证完成，共 ${steps.length} 个步骤。${result.video_path ? `录像: ${result.video_path}` : terminalReason}`,
+          "ok"
+        );
+      }
+    }
+
+    function applyStreamEvent(message, context = activeStreamRun) {
+      if (!message || typeof message !== "object") return false;
+      if (!shouldAcceptStreamEvent(message, context)) return false;
+      const event = message.event;
+      const payload = message.payload || {};
+      if (TERMINAL_STREAM_EVENTS.has(event) || message.terminal === true) {
+        consumeTerminalEvent(message, context);
+        return true;
+      }
+
+      const stepDetail = Number.isFinite(Number(payload.step_id))
+        ? `步骤 ${Number(payload.step_id)}`
+        : "";
       if (event === "task_parsed") {
-        $("phase").textContent = "task parsed";
+        setRunStage("initialization", 6, "解析任务");
         renderTaskState(payload.task_plan || {});
         setStatus(`任务已解析，准备启动 ${payload.scene}。`, "busy");
       } else if (event === "simulator_starting") {
-        $("phase").textContent = "starting simulator";
+        setRunStage("initialization", 12, "启动仿真器");
         setStatus(`正在启动 ${payload.scene || $("scene").value} Unity 场景。`, "busy");
       } else if (event === "simulator_ready") {
-        $("phase").textContent = "simulator ready";
+        setRunStage("initialization", 20, "仿真器就绪");
         $("backendLabel").textContent = "ai2thor";
         $("sceneLabel").textContent = payload.scene || $("scene").value;
         $("modeLabel").textContent = payload.agent_mode || $("agentMode").value;
       } else if (event === "observation_ready") {
-        $("phase").textContent = "observing";
+        setRunStage("observation", 30, stepDetail);
         $("stepLabel").textContent = String(payload.step_id ?? 0);
         setImage("pov", "povEmpty", asset(payload.observation_path));
         $("observation").textContent = pretty({
@@ -622,14 +848,14 @@
         $("closeupSource").textContent = source === "third_party_camera" ? "仿真特写" : "回退裁剪";
         $("clickedObjectPanel").style.display = "block";
       } else if (event === "model_request_started") {
-        $("phase").textContent = "model reasoning";
+        setRunStage("planning", 45, stepDetail);
         $("modelBadge").textContent = "模型推理中";
         $("modelLabel").textContent =
           payload.planner?.model || payload.planner?.provider || "model planner";
         setStatus(`步骤 ${payload.step_id}: 正在进行视觉与任务决策。`, "busy");
       } else if (event === "model_decision") {
         const proposed = payload.proposed_action || {};
-        $("phase").textContent = "decision ready";
+        setRunStage("planning", 55, stepDetail);
         $("action").textContent = proposed.type || proposed.name || "UNKNOWN";
         $("confidence").textContent =
           `置信度 ${Number(payload.confidence || 0).toFixed(3)}`;
@@ -640,7 +866,7 @@
           payload.structured_thought?.reasoning || payload.thought || "无决策摘要";
         renderTaskState(payload.task_plan || {}, payload.completion_status || {});
       } else if (event === "action_validated") {
-        $("phase").textContent = "action validated";
+        setRunStage("execution", 65, stepDetail);
         $("action").textContent = payload.action || "UNKNOWN";
         $("skillName").textContent = payload.action || "-";
         $("executionFeedback").textContent = pretty({
@@ -651,7 +877,7 @@
           grounded_target: payload.grounded_target
         });
       } else if (event === "action_executed") {
-        $("phase").textContent = "environment feedback";
+        setRunStage("execution", 75, stepDetail);
         $("executionFeedback").textContent = pretty({
           action: payload.action,
           action_success: payload.action_success,
@@ -663,8 +889,8 @@
           payload.observation_path
         ) {
           setImage("pov", "povEmpty", asset(payload.observation_path));
-          $("phase").textContent = "observing after action";
         }
+        setRunStage("feedback", 85, stepDetail);
         $("memorySummary").textContent =
           payload.memory_summary || "当前步骤尚无记忆摘要";
         renderTaskState({}, payload.completion_status || {});
@@ -678,47 +904,30 @@
         steps.push(payload.step);
         renderTimeline();
         renderStep(steps.length - 1);
+        setRunStage("feedback", 90, stepDetail || `步骤 ${steps.length - 1}`);
         setStatus(`已完成步骤 ${payload.step_id}，继续闭环观察。`, "busy");
-      } else if (event === "episode_completed") {
-        const result = payload.result || {};
-        $("video").src = asset(result.video_path) + `?t=${Date.now()}`;
-        $("videoState").textContent = "已生成";
-        const finalStep = steps[steps.length - 1] || {};
-        const verified = Boolean(finalStep.completion_status?.complete);
-        const needsClarification = finalStep.action === "ASK_CLARIFY";
-        $("phase").textContent = verified
-          ? "completed"
-          : (needsClarification ? "needs-input" : "incomplete");
-        $("modelBadge").textContent = "模型待机";
-        const completionReason =
-          finalStep.completion_status?.reason ||
-          finalStep.task_plan?.clarification ||
-          "完成条件未通过验证";
-        setStatus(
-          verified
-            ? `任务已验证完成，共 ${steps.length} 个步骤。录像: ${result.video_path}`
-            : `任务未完成：${completionReason}。已记录 ${steps.length} 个步骤。`,
-          verified ? "ok" : "error"
-        );
-      } else if (event === "episode_cancelled") {
-        $("phase").textContent = "cancelled";
-        $("modelBadge").textContent = "模型待机";
-        setStatus(payload.message || "Agent 已停止。", "error");
-      } else if (event === "error") {
-        $("phase").textContent = "error";
-        $("modelBadge").textContent = "模型错误";
-        setStatus(`${payload.error_type || "Error"}: ${payload.message || "unknown"}`, "error");
       }
+      return true;
     }
 
-    async function runAI2ThorStream(payload) {
-      streamController = new AbortController();
+    function processStreamLine(line, context) {
+      if (!line.trim()) return;
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch (error) {
+        throw new Error(`流事件解析失败: ${error.message}`);
+      }
+      applyStreamEvent(message, context);
+    }
+
+    async function runAI2ThorStream(payload, context) {
       $("stopAgent").disabled = false;
       const response = await fetch("/api/demo/ai2thor/stream", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(payload),
-        signal: streamController.signal
+        signal: context.controller.signal
       });
       if (!response.ok) {
         let detail;
@@ -729,6 +938,10 @@
         }
         throw new Error(pretty(detail.detail || detail));
       }
+      const responseRunId = response.headers.get("X-Run-Id");
+      const responseEpisodeId = response.headers.get("X-Episode-Id");
+      if (responseRunId) context.runId = responseRunId;
+      if (responseEpisodeId) context.episodeId = responseEpisodeId;
       if (!response.body) throw new Error("浏览器不支持流式响应。");
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -739,21 +952,28 @@
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
         for (const line of lines) {
-          if (line.trim()) applyStreamEvent(JSON.parse(line));
+          processStreamLine(line, context);
         }
         if (done) break;
       }
-      if (buffer.trim()) applyStreamEvent(JSON.parse(buffer));
+      processStreamLine(buffer, context);
+      if (isCurrentStreamRun(context) && !context.terminalConsumed) {
+        throw new Error("流式响应结束但未收到 terminal 事件。");
+      }
     }
 
     function stopAgent() {
-      if (streamController) streamController.abort();
+      cancelStreamRun(activeStreamRun, {
+        showCancelled: true,
+        reason: "已请求停止 Agent，当前流已隔离并回收。"
+      });
     }
 
     async function runDemo() {
       const backend = $("backend").value;
       currentBackend = backend;
-      $("phase").textContent = "running";
+      invalidateActiveStreamRun();
+      setRunStage("initialization", 2, "创建运行");
       setStatus("正在运行 Agent、仿真器和录像管线。", "busy");
       const payload = {
         session_id: $("session").value,
@@ -769,9 +989,11 @@
       renderTimeline();
       $("video").removeAttribute("src");
       $("videoState").textContent = "生成中";
+      let runContext = null;
       try {
         if (backend === "ai2thor") {
-          await runAI2ThorStream(payload);
+          runContext = beginStreamRun();
+          await runAI2ThorStream(payload, runContext);
           return;
         }
         const endpoint = "/api/demo/run";
@@ -804,17 +1026,37 @@
           verified ? "ok" : "error"
         );
       } catch (error) {
+        if (runContext && !isCurrentStreamRun(runContext)) return;
         if (error.name === "AbortError") {
-          $("phase").textContent = "cancelled";
-          setStatus("已请求停止 Agent，正在回收仿真资源。", "error");
+          if (runContext && !runContext.terminalConsumed) {
+            cancelStreamRun(runContext, {
+              showCancelled: true,
+              reason: "Agent 请求已取消。"
+            });
+          }
         } else {
-          $("phase").textContent = "error";
-          setStatus(String(error), "error");
+          if (runContext && !runContext.terminalConsumed) {
+            consumeTerminalEvent({
+              event: "error",
+              payload: {
+                error_type: error.name || "StreamError",
+                message: String(error.message || error),
+                terminal_reason: String(error.message || error),
+                task_success: false
+              }
+            }, runContext);
+          } else if (!runContext) {
+            setRunStage("failure", 100, "任务终止");
+            setStatus(String(error), "error");
+          }
         }
       } finally {
-        streamController = null;
-        $("stopAgent").disabled = true;
-        $("modelBadge").textContent = "模型待机";
+        if (!runContext || isCurrentStreamRun(runContext)) {
+          streamController = null;
+          if (runContext) runContext.controller = null;
+          $("stopAgent").disabled = true;
+          $("modelBadge").textContent = "模型待机";
+        }
       }
     }
 

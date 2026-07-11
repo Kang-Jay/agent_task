@@ -16,6 +16,7 @@ class _FakePlanningAdapter:
         self.valid_plan = valid_plan
         self.plan_task_calls = 0
         self.plan_action_calls = 0
+        self.last_task_payload = None
         self.last_action_payload = None
 
     def available(self) -> bool:
@@ -23,6 +24,7 @@ class _FakePlanningAdapter:
 
     def plan_task(self, payload):
         self.plan_task_calls += 1
+        self.last_task_payload = payload
         ordered = [
             "locate_target",
             "approach_target",
@@ -188,6 +190,10 @@ class TaskExecutionPlanTests(unittest.TestCase):
         )
         self.assertEqual(adapter.plan_task_calls, 1)
         self.assertEqual(adapter.plan_action_calls, 2)
+        self.assertEqual(
+            set(adapter.last_task_payload["layered_memories"]),
+            {"object", "spatial", "task", "failure", "skill", "episode"},
+        )
         self.assertEqual(
             first.execution_plan["plan_id"],
             second.execution_plan["plan_id"],

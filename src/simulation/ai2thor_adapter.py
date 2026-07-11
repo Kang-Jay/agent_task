@@ -662,6 +662,8 @@ class AI2ThorVisualSearchDemo:
                     completion_status=response_dict.get("completion_status"),
                     execution=execution_record,
                     interaction_binding=interaction_binding,
+                    environment_context=environment_context,
+                    post_environment_context=post_environment_context,
                     map_view_source=map_view_source,
                 )
                 result.steps.append(step_record)

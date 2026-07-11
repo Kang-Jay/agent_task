@@ -81,6 +81,8 @@ class DemoStep:
     completion_status: dict[str, Any] | None = None
     execution: dict[str, Any] | None = None
     interaction_binding: dict[str, Any] | None = None
+    environment_context: dict[str, Any] | None = None
+    post_environment_context: dict[str, Any] | None = None
     map_view_source: str = "procedural_2d"
 
 

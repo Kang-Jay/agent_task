@@ -39,6 +39,7 @@ docs/cinematic_demo/frames/
 
 # Generated AI2-THOR/browser recording runtime artifacts
 docs/ai2thor_outputs/frames/
+docs/ai2thor_outputs/final_demo_validation*/
 docs/demo_outputs/frames/
 docs/browser_recordings/frames/
 

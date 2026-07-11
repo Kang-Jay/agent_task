@@ -730,6 +730,12 @@ class EmbodiedSearchAgent:
     ) -> Action | None:
         if completion_status.get("approach_verified"):
             return None
+        if EmbodiedSearchAgent._approach_guidance_should_yield(
+            task_plan=task_plan,
+            completion_status=completion_status,
+            state=state,
+        ):
+            return None
         context = environment_context or {}
         approach = context.get("approach") or {}
         if (
@@ -826,6 +832,38 @@ class EmbodiedSearchAgent:
             ):
                 return None
         return action
+
+    @staticmethod
+    def _approach_guidance_should_yield(
+        *,
+        task_plan: TaskPlan,
+        completion_status: dict,
+        state,
+    ) -> bool:
+        missing_actions = list(completion_status.get("missing_actions") or [])
+        if not any(action in missing_actions for action in ("PickupObject", "PutObject", "OpenObject")):
+            return False
+        recent_approach_steps = 0
+        for step in reversed(state.steps[-4:]):
+            if step.get("planner_source") != "simulator_oracle":
+                break
+            if step.get("fallback_reason") != "verified_approach_navigation":
+                break
+            previous_action = step.get("executed_action") or step.get("action") or {}
+            if previous_action.get("type") not in {
+                "MOVE_FORWARD",
+                "TURN_LEFT",
+                "TURN_RIGHT",
+                "LOOK_UP",
+                "LOOK_DOWN",
+            }:
+                break
+            if step.get("action_success") is not True:
+                break
+            recent_approach_steps += 1
+        if "PutObject" in missing_actions and "PickupObject" not in missing_actions:
+            return recent_approach_steps >= 2
+        return recent_approach_steps >= 3
 
     @staticmethod
     def _approach_target_matches_next_action(

@@ -1,0 +1,252 @@
+{
+  "schema_version": "1.0",
+  "benchmark_id": "plan2-multiscene-v1",
+  "dataset_version": "2026-07-10",
+  "inference_only": true,
+  "description": "Frozen paired oracle and non-oracle Plan2 regression manifest. This data is for validation and final evaluation only, never training or fine-tuning.",
+  "protocol": {
+    "required_groups": [
+      "oracle",
+      "non_oracle"
+    ],
+    "minimum_scene_count": 3
+  },
+  "episodes": [
+    {
+      "episode_id": "fp211-television-search-oracle",
+      "pair_id": "fp211-television-search",
+      "group": "oracle",
+      "split": "development",
+      "scene": "FloorPlan211",
+      "seed": 211001,
+      "initial_pose": {
+        "position": {
+          "x": -0.5,
+          "y": 0.9009991884231567,
+          "z": 0.5
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 90.0,
+          "z": 0.0
+        },
+        "horizon": 0.0,
+        "standing": true
+      },
+      "task": {
+        "instruction": "找到房间里的电视",
+        "task_type": "visual_search",
+        "target": {
+          "object_type": "Television"
+        },
+        "required_actions": [
+          "STOP"
+        ],
+        "allows_approximate_success": false
+      },
+      "reference": {
+        "optimal_path_length_meters": null,
+        "source": "artifact",
+        "allowed_error_meters": 0.05
+      },
+      "result_file": "development/oracle/fp211-television-search.json"
+    },
+    {
+      "episode_id": "fp211-television-search-non-oracle",
+      "pair_id": "fp211-television-search",
+      "group": "non_oracle",
+      "split": "development",
+      "scene": "FloorPlan211",
+      "seed": 211001,
+      "initial_pose": {
+        "position": {
+          "x": -0.5,
+          "y": 0.9009991884231567,
+          "z": 0.5
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 90.0,
+          "z": 0.0
+        },
+        "horizon": 0.0,
+        "standing": true
+      },
+      "task": {
+        "instruction": "找到房间里的电视",
+        "task_type": "visual_search",
+        "target": {
+          "object_type": "Television"
+        },
+        "required_actions": [
+          "STOP"
+        ],
+        "allows_approximate_success": false
+      },
+      "reference": {
+        "optimal_path_length_meters": null,
+        "source": "artifact",
+        "allowed_error_meters": 0.05
+      },
+      "result_file": "development/non_oracle/fp211-television-search.json"
+    },
+    {
+      "episode_id": "fp225-vase-into-box-oracle",
+      "pair_id": "fp225-vase-into-box",
+      "group": "oracle",
+      "split": "test",
+      "scene": "FloorPlan225",
+      "seed": 225001,
+      "initial_pose": {
+        "position": {
+          "x": -2.5,
+          "y": 0.906817615032196,
+          "z": 3.75
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 180.0,
+          "z": 0.0
+        },
+        "horizon": 0.0,
+        "standing": true
+      },
+      "task": {
+        "instruction": "把花瓶放到纸箱里",
+        "task_type": "interaction",
+        "target": {
+          "object_type": "Vase",
+          "source_object_type": "Vase",
+          "destination_object_type": "Box"
+        },
+        "required_actions": [
+          "PickupObject",
+          "PutObject"
+        ],
+        "allows_approximate_success": false
+      },
+      "reference": {
+        "optimal_path_length_meters": null,
+        "source": "artifact",
+        "allowed_error_meters": 0.05
+      },
+      "result_file": "test/oracle/fp225-vase-into-box.json"
+    },
+    {
+      "episode_id": "fp225-vase-into-box-non-oracle",
+      "pair_id": "fp225-vase-into-box",
+      "group": "non_oracle",
+      "split": "test",
+      "scene": "FloorPlan225",
+      "seed": 225001,
+      "initial_pose": {
+        "position": {
+          "x": -2.5,
+          "y": 0.906817615032196,
+          "z": 3.75
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 180.0,
+          "z": 0.0
+        },
+        "horizon": 0.0,
+        "standing": true
+      },
+      "task": {
+        "instruction": "把花瓶放到纸箱里",
+        "task_type": "interaction",
+        "target": {
+          "object_type": "Vase",
+          "source_object_type": "Vase",
+          "destination_object_type": "Box"
+        },
+        "required_actions": [
+          "PickupObject",
+          "PutObject"
+        ],
+        "allows_approximate_success": false
+      },
+      "reference": {
+        "optimal_path_length_meters": null,
+        "source": "artifact",
+        "allowed_error_meters": 0.05
+      },
+      "result_file": "test/non_oracle/fp225-vase-into-box.json"
+    },
+    {
+      "episode_id": "fp301-approach-bed-oracle",
+      "pair_id": "fp301-approach-bed",
+      "group": "oracle",
+      "split": "test",
+      "scene": "FloorPlan301",
+      "seed": 301001,
+      "initial_pose": {
+        "position": {
+          "x": 2.25,
+          "y": 0.910415768623352,
+          "z": 1.0
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 270.0,
+          "z": 0.0
+        },
+        "horizon": 0.0,
+        "standing": true
+      },
+      "task": {
+        "instruction": "找到房间里的床并走到床边",
+        "task_type": "navigation",
+        "target": {
+          "object_type": "Bed"
+        },
+        "required_actions": [],
+        "allows_approximate_success": false
+      },
+      "reference": {
+        "optimal_path_length_meters": null,
+        "source": "artifact",
+        "allowed_error_meters": 0.05
+      },
+      "result_file": "test/oracle/fp301-approach-bed.json"
+    },
+    {
+      "episode_id": "fp301-approach-bed-non-oracle",
+      "pair_id": "fp301-approach-bed",
+      "group": "non_oracle",
+      "split": "test",
+      "scene": "FloorPlan301",
+      "seed": 301001,
+      "initial_pose": {
+        "position": {
+          "x": 2.25,
+          "y": 0.910415768623352,
+          "z": 1.0
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 270.0,
+          "z": 0.0
+        },
+        "horizon": 0.0,
+        "standing": true
+      },
+      "task": {
+        "instruction": "找到房间里的床并走到床边",
+        "task_type": "navigation",
+        "target": {
+          "object_type": "Bed"
+        },
+        "required_actions": [],
+        "allows_approximate_success": false
+      },
+      "reference": {
+        "optimal_path_length_meters": null,
+        "source": "artifact",
+        "allowed_error_meters": 0.05
+      },
+      "result_file": "test/non_oracle/fp301-approach-bed.json"
+    }
+  ]
+}

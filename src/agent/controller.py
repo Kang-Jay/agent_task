@@ -50,7 +50,10 @@ class EmbodiedSearchAgent:
             mode=request.agent_mode,
             legacy_actions=self.config.allowed_actions,
         )
-        recalled_memories = self.memory.retrieve_relevant(state)
+        recalled_memories = self.memory.retrieve_relevant(
+            state,
+            request.environment_context,
+        )
         analysis = self.vision.analyze(observation, request.instruction, target_crop)
         hints = self.retriever.retrieve(request.instruction, state)
 
@@ -243,6 +246,11 @@ class EmbodiedSearchAgent:
         if planner_source == "model_planner" and model_summary:
             structured_thought["reasoning"] = model_summary
 
+        layered_memory_ids = {
+            layer: [int(memory["id"]) for memory in memories]
+            for layer, memories in state.layered_memories.items()
+        }
+        model_info["memory_context_ids_by_layer"] = layered_memory_ids
         step_record = {
             "step_id": request.step_id,
             "thought": thought,
@@ -256,6 +264,7 @@ class EmbodiedSearchAgent:
             "fallback_reason": fallback_reason if planner_source != "model_planner" else None,
             "model_info": model_info,
             "recalled_memory_ids": [memory["id"] for memory in recalled_memories],
+            "recalled_layered_memory_ids": layered_memory_ids,
             "task_plan": task_plan.to_dict(),
             "execution_plan": execution_plan.to_dict(),
             "completion_status": completion_status,
@@ -315,6 +324,10 @@ class EmbodiedSearchAgent:
                 "stored_episodes": self.memory.episodic_store.count(
                     namespace="visual_search"
                 ),
+                "hierarchical_database_path": str(
+                    self.memory.hierarchical_store.db_path
+                ),
+                "layer_counts": self.memory.hierarchical_store.layer_counts(),
             },
             "status": "ok",
         }
@@ -457,6 +470,7 @@ class EmbodiedSearchAgent:
             "explored_regions": state.explored_regions,
             "retrieved_hints": hints,
             "episodic_memories": state.retrieved_memories,
+            "layered_memories": state.layered_memories,
             "allowed_actions": list(task_plan.action_candidates),
             "action_specs": list(task_plan.action_specs),
             "terminal_actions": ["STOP", "Done", "ASK_CLARIFY"],
@@ -583,6 +597,7 @@ class EmbodiedSearchAgent:
                         "instruction": request.instruction,
                         "observation_summary": analysis.scene_summary,
                         "task_contract": task_plan.to_dict(),
+                        "layered_memories": state.layered_memories,
                         "environment_context": self._model_environment_context(
                             request.environment_context
                         ),

@@ -8,6 +8,18 @@ from typing import Any
 
 from openai import OpenAI
 
+from src.agent.model_reliability import (
+    ModelCallContext,
+    build_no_credentials_error,
+    build_provider_error,
+    build_skipped_provider_error,
+    build_success_audit,
+    build_validation_error,
+    legacy_error_message,
+    request_headers,
+    request_profile,
+)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 API_KEY_PATH = ROOT / "apikey.txt"
@@ -106,8 +118,10 @@ class ModelAdapter:
     def plan_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Create one global task plan before step-level action planning."""
         if not self.available():
+            audit = build_no_credentials_error("plan_task")
             return {
                 "error": "no_credentials",
+                "provider_errors": [audit],
                 "fallback_reason": "API key not available",
             }
 
@@ -123,31 +137,50 @@ Respect limitations and approximate completion modes.
 Do not output hidden reasoning."""
 
         task_contract = payload.get("task_contract", {})
+        layered_memories = payload.get("layered_memories", {})
         prompt = f"""Instruction: {payload.get('instruction', '')}
 Observation Summary: {payload.get('observation_summary', '')}
 Task Contract:
 {json.dumps(task_contract, ensure_ascii=False)}
+Relevant Layered Memory With Evidence:
+{json.dumps(layered_memories, ensure_ascii=False)}
 AI2-THOR Environment Context:
 {json.dumps(payload.get('environment_context', {}), ensure_ascii=False)}
 
 Order all supplied subgoal ids into a complete executable global plan."""
         errors: list[str] = []
+        provider_errors: list[dict[str, Any]] = []
         require_vision = bool(payload.get("require_vision", False))
         for credential in self.credentials:
             supports_vision = self._supports_vision(credential)
             if require_vision and not supports_vision:
-                errors.append(
-                    f"{credential.provider}: skipped because visual input is required"
+                audit = build_skipped_provider_error(
+                    operation="plan_task",
+                    provider=credential.provider,
+                    model=credential.model or "gpt-4o-mini",
+                    reason="skipped because visual input is required",
                 )
+                provider_errors.append(audit)
+                errors.append(legacy_error_message(audit))
                 continue
+            model_name = credential.model or "gpt-4o-mini"
+            profile = request_profile(
+                "plan_task",
+                thinking_model=self._is_thinking_model(model_name),
+            )
+            context = ModelCallContext.start(
+                operation="plan_task",
+                provider=credential.provider,
+                model=model_name,
+                profile=profile,
+            )
+            response: Any | None = None
             try:
-                model_name = credential.model or "gpt-4o-mini"
-                is_thinking_model = self._is_thinking_model(model_name)
-                request_timeout = 90.0 if is_thinking_model else 15.0
                 client = OpenAI(
                     api_key=credential.api_key,
                     base_url=credential.base_url,
-                    timeout=request_timeout,
+                    timeout=profile.timeout_seconds,
+                    max_retries=profile.sdk_max_retries,
                 )
                 user_content: str | list[dict[str, Any]] = prompt
                 observation_image = payload.get("observation_image")
@@ -185,8 +218,9 @@ Order all supplied subgoal ids into a complete executable global plan."""
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content},
                     ],
-                    temperature=1.0 if is_thinking_model else 0.1,
-                    max_tokens=2048 if is_thinking_model else 300,
+                    temperature=profile.temperature,
+                    max_tokens=profile.max_tokens,
+                    extra_headers=request_headers(context),
                     response_format=(
                         {"type": "json_object"}
                         if credential.provider != "deepseek"
@@ -198,27 +232,35 @@ Order all supplied subgoal ids into a complete executable global plan."""
                 if not isinstance(ordered_ids, list) or not all(
                     isinstance(item, str) and item for item in ordered_ids
                 ):
-                    errors.append(
-                        f"{credential.provider}: invalid ordered_subgoal_ids"
+                    audit = build_validation_error(
+                        context,
+                        response=response,
+                        message="invalid ordered_subgoal_ids",
                     )
+                    provider_errors.append(audit)
+                    errors.append(legacy_error_message(audit))
                     continue
                 result["provider_used"] = credential.provider
                 result["model_used"] = model_name
                 result["vision_input_used"] = isinstance(user_content, list)
+                result["model_call"] = build_success_audit(context, response)
                 return result
             except json.JSONDecodeError as exc:
-                errors.append(
-                    f"{credential.provider}: JSON decode error: {str(exc)[:100]}"
+                audit = build_validation_error(
+                    context,
+                    response=response,
+                    message=f"JSON decode error: {str(exc)[:100]}",
                 )
-            except TimeoutError as exc:
-                errors.append(f"{credential.provider}: timeout: {str(exc)[:100]}")
+                provider_errors.append(audit)
+                errors.append(legacy_error_message(audit))
             except Exception as exc:
-                errors.append(
-                    f"{credential.provider}: {type(exc).__name__}: {str(exc)[:160]}"
-                )
+                audit = build_provider_error(context, exc)
+                provider_errors.append(audit)
+                errors.append(legacy_error_message(audit))
         return {
             "error": "all_model_calls_failed",
             "errors": errors,
+            "provider_errors": provider_errors,
             "fallback_reason": (
                 "No configured vision model completed global task planning"
                 if require_vision
@@ -235,6 +277,7 @@ Order all supplied subgoal ids into a complete executable global plan."""
         - candidates: list
         - confidence: float
         - memory_summary: str
+        - layered_memories: object, spatial, task, failure, skill and episode
         - negative_memory: list
         - explored_regions: dict
         - retrieved_hints: list
@@ -255,8 +298,10 @@ Order all supplied subgoal ids into a complete executable global plan."""
         }
         """
         if not self.available():
+            audit = build_no_credentials_error("plan_action")
             return {
                 "error": "no_credentials",
+                "provider_errors": [audit],
                 "fallback_reason": "API key not available"
             }
 
@@ -280,34 +325,52 @@ Do not output hidden reasoning, only the final short summary."""
         user_prompt = self._build_planner_prompt(payload)
 
         errors: list[str] = []
+        provider_errors: list[dict[str, Any]] = []
         require_vision = bool(payload.get("require_vision", False))
         for credential in self.credentials:
             supports_vision = self._supports_vision(credential)
             if require_vision and not supports_vision:
-                errors.append(f"{credential.provider}: skipped because visual input is required")
+                audit = build_skipped_provider_error(
+                    operation="plan_action",
+                    provider=credential.provider,
+                    model=credential.model or "gpt-4o-mini",
+                    reason="skipped because visual input is required",
+                )
+                provider_errors.append(audit)
+                errors.append(legacy_error_message(audit))
                 continue
+            model_name = credential.model or "gpt-4o-mini"
+            profile = request_profile(
+                "plan_action",
+                thinking_model=self._is_thinking_model(model_name),
+            )
+            context = ModelCallContext.start(
+                operation="plan_action",
+                provider=credential.provider,
+                model=model_name,
+                profile=profile,
+            )
+            response: Any | None = None
             try:
-                model_name = credential.model or "gpt-4o-mini"
-                is_thinking_model = self._is_thinking_model(model_name)
-                # Thinking-capable Kimi K2 models (e.g. kimi-k2.6) only accept
-                # temperature=1 and spend many tokens on hidden reasoning, so they
-                # need a much larger max_tokens budget and a longer timeout.
-                request_timeout = 90.0 if is_thinking_model else 15.0
-                client = OpenAI(api_key=credential.api_key, base_url=credential.base_url, timeout=request_timeout)
+                client = OpenAI(
+                    api_key=credential.api_key,
+                    base_url=credential.base_url,
+                    timeout=profile.timeout_seconds,
+                    max_retries=profile.sdk_max_retries,
+                )
                 user_content = self._build_user_content(
                     payload,
                     include_images=supports_vision,
                 )
-                temperature = 1.0 if is_thinking_model else 0.1
-                max_tokens = 2048 if is_thinking_model else 300
                 response = client.chat.completions.create(
                     model=model_name,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content},
                     ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
+                    temperature=profile.temperature,
+                    max_tokens=profile.max_tokens,
+                    extra_headers=request_headers(context),
                     response_format={"type": "json_object"} if credential.provider != "deepseek" else None,
                 )
                 content = response.choices[0].message.content or "{}"
@@ -315,7 +378,13 @@ Do not output hidden reasoning, only the final short summary."""
 
                 # Validate output
                 if "action" not in result or "type" not in result.get("action", {}):
-                    errors.append(f"{credential.provider}: missing action.type in response")
+                    audit = build_validation_error(
+                        context,
+                        response=response,
+                        message="missing action.type in response",
+                    )
+                    provider_errors.append(audit)
+                    errors.append(legacy_error_message(audit))
                     continue
 
                 # Add skill_call if not present
@@ -331,18 +400,26 @@ Do not output hidden reasoning, only the final short summary."""
                 result["provider_used"] = credential.provider
                 result["model_used"] = credential.model or "gpt-4o-mini"
                 result["vision_input_used"] = isinstance(user_content, list)
+                result["model_call"] = build_success_audit(context, response)
                 return result
 
             except json.JSONDecodeError as exc:
-                errors.append(f"{credential.provider}: JSON decode error: {str(exc)[:100]}")
-            except TimeoutError as exc:
-                errors.append(f"{credential.provider}: timeout: {str(exc)[:100]}")
+                audit = build_validation_error(
+                    context,
+                    response=response,
+                    message=f"JSON decode error: {str(exc)[:100]}",
+                )
+                provider_errors.append(audit)
+                errors.append(legacy_error_message(audit))
             except Exception as exc:
-                errors.append(f"{credential.provider}: {type(exc).__name__}: {str(exc)[:160]}")
+                audit = build_provider_error(context, exc)
+                provider_errors.append(audit)
+                errors.append(legacy_error_message(audit))
 
         return {
             "error": "all_model_calls_failed",
             "errors": errors,
+            "provider_errors": provider_errors,
             "fallback_reason": (
                 "No configured vision model completed the request"
                 if require_vision
@@ -368,6 +445,7 @@ Do not output hidden reasoning, only the final short summary."""
         execution_plan = payload.get("execution_plan", {})
         completion_status = payload.get("completion_status", {})
         episodic_memories = payload.get("episodic_memories", [])
+        layered_memories = payload.get("layered_memories", {})
         episodic_text = "\n".join(
             (
                 f"- action={memory.get('action', 'UNKNOWN')}; "
@@ -389,6 +467,8 @@ Hints: {', '.join(retrieved_hints) if retrieved_hints else 'none'}
 Negative Memory: {', '.join(negative_memory[-3:]) if negative_memory else 'none'}
 Relevant Executed Episodes:
 {episodic_text}
+Layered Memory With Evidence:
+{json.dumps(layered_memories, ensure_ascii=False)}
 
 Allowed Actions: {', '.join(allowed_actions)}
 Action Schemas:
@@ -470,16 +550,34 @@ Plan exactly one next action. Return JSON with thought_summary, task_progress, a
         return normalized.startswith("kimi-k2")
 
     def complete_json(self, system: str, user: str) -> dict[str, Any]:
+        if not self.available():
+            audit = build_no_credentials_error("complete_json")
+            return {
+                "error": "no_credentials",
+                "errors": [legacy_error_message(audit)],
+                "provider_errors": [audit],
+            }
         errors: list[str] = []
+        provider_errors: list[dict[str, Any]] = []
         for credential in self.credentials:
+            model_name = credential.model or "gpt-4o-mini"
+            profile = request_profile(
+                "complete_json",
+                thinking_model=self._is_thinking_model(model_name),
+            )
+            context = ModelCallContext.start(
+                operation="complete_json",
+                provider=credential.provider,
+                model=model_name,
+                profile=profile,
+            )
+            response: Any | None = None
             try:
-                model_name = credential.model or "gpt-4o-mini"
-                is_thinking_model = self._is_thinking_model(model_name)
-                request_timeout = 90.0 if is_thinking_model else None
                 client = OpenAI(
                     api_key=credential.api_key,
                     base_url=credential.base_url,
-                    timeout=request_timeout,
+                    timeout=profile.timeout_seconds,
+                    max_retries=profile.sdk_max_retries,
                 )
                 response = client.chat.completions.create(
                     model=model_name,
@@ -487,15 +585,32 @@ Plan exactly one next action. Return JSON with thought_summary, task_progress, a
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
-                    temperature=1.0 if is_thinking_model else 0.1,
-                    max_tokens=2048 if is_thinking_model else 220,
+                    temperature=profile.temperature,
+                    max_tokens=profile.max_tokens,
+                    extra_headers=request_headers(context),
                     response_format={"type": "json_object"} if credential.provider != "deepseek" else None,
                 )
                 content = response.choices[0].message.content or "{}"
-                return json.loads(content)
+                result = json.loads(content)
+                result["model_call"] = build_success_audit(context, response)
+                return result
+            except json.JSONDecodeError as exc:
+                audit = build_validation_error(
+                    context,
+                    response=response,
+                    message=f"JSON decode error: {str(exc)[:100]}",
+                )
+                provider_errors.append(audit)
+                errors.append(legacy_error_message(audit))
             except Exception as exc:
-                errors.append(f"{credential.provider}: {type(exc).__name__}: {str(exc)[:160]}")
-        return {"error": "all_model_calls_failed", "errors": errors}
+                audit = build_provider_error(context, exc)
+                provider_errors.append(audit)
+                errors.append(legacy_error_message(audit))
+        return {
+            "error": "all_model_calls_failed",
+            "errors": errors,
+            "provider_errors": provider_errors,
+        }
 
 
 def smoke_test() -> dict[str, Any]:

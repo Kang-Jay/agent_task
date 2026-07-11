@@ -1,7 +1,8 @@
-fastapi
-uvicorn
-pillow
-numpy
-pyyaml
-opencv-python
-openai
+fastapi==0.139.0
+uvicorn==0.50.2
+pillow==12.3.0
+numpy==2.2.6
+pyyaml==6.0.3
+opencv-python==5.0.0.93
+openai==2.44.0
+ai2thor==5.0.0

@@ -33,8 +33,13 @@ File: `src/agent/controller.py`
 - This branch activates only after the session already has a successful real VLM vision step.
 - Once repeated verified approach navigation has yielded, the agent directly calls `_continue_supported_task()` from the current verifier `missing_actions`.
 - The trace marks this as `fallback_reason = verifier_guided_interaction_continuation`.
+- Added an interaction readiness gate so approach guidance does not yield while the next interaction target is still not executable:
+  - `PickupObject` requires the pickup target to be visible.
+  - `PutObject` requires one held inventory object and a visible receptacle.
+  - `OpenObject` requires a visible closed openable target.
 
 This preserves VLM participation while preventing repeated slow model calls from blocking deterministic next predicates such as pickup and put after the VLM has already grounded the task context.
+It also prevents the agent from prematurely issuing `PickupObject` for an invisible target and falling into an interaction-binding failure loop.
 
 ### 2. Generalize PickupObject and PutObject target selection
 
@@ -61,6 +66,7 @@ Added tests that prove:
 - `put the mug in the bowl` chooses `Mug|1`, not a nearer `Vase|1`.
 - `PutObject` uses the held inventory object and chooses `Bowl|1`, not a nearer `Box|1`.
 - After a real VLM vision step and repeated approach guidance, the agent skips a new slow model call and emits the next verifier-guided interaction action.
+- If the pickup target is still invisible, the agent continues verified approach navigation instead of issuing premature `PickupObject`.
 
 ## Verification Completed Locally
 
@@ -76,7 +82,7 @@ git diff --check
 
 Results:
 
-- `test_model_planner.py`: 30 tests OK.
+- `test_model_planner.py`: 31 tests OK.
 - `test_task_semantics.py`: 13 tests OK.
 - `test_final_agent_demo_runner.py`: 12 tests OK.
 - `git diff --check`: no whitespace errors.

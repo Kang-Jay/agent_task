@@ -839,6 +839,95 @@ class ModelPlannerTests(unittest.TestCase):
         )
         self.assertTrue(response.model_info["prior_real_vlm_step"])
 
+    def test_interaction_continuation_waits_until_pickup_target_visible(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        image_path = self.config.image_dir / "ep_red_cup_visible_000.png"
+        state = agent.memory.get_or_create(
+            "test-approach-yield-waits-for-visible-pickup-target",
+            "put the mug in the bowl",
+        )
+        state.steps.extend(
+            [
+                {
+                    "planner_source": "model_planner",
+                    "model_info": {
+                        "status": "ok",
+                        "vision_input_used": True,
+                        "provider": "kimi",
+                        "model": "kimi-k2.6",
+                    },
+                    "action_success": True,
+                    "executed_action": {"type": "TURN_RIGHT", "args": {"angle": 30.0}},
+                },
+                {
+                    "planner_source": "simulator_oracle",
+                    "fallback_reason": "verified_approach_navigation",
+                    "action_success": True,
+                    "executed_action": {"type": "MOVE_FORWARD", "args": {"distance": 0.25}},
+                },
+                {
+                    "planner_source": "simulator_oracle",
+                    "fallback_reason": "verified_approach_navigation",
+                    "action_success": True,
+                    "executed_action": {"type": "TURN_LEFT", "args": {"angle": 5.0}},
+                },
+                {
+                    "planner_source": "simulator_oracle",
+                    "fallback_reason": "verified_approach_navigation",
+                    "action_success": True,
+                    "executed_action": {"type": "TURN_RIGHT", "args": {"angle": 5.0}},
+                },
+            ]
+        )
+
+        with patch.object(agent.model_adapter, "available", return_value=True):
+            with patch.object(agent.model_adapter, "plan_action") as plan_action:
+                response = agent.step(
+                    AgentRequest(
+                        session_id="test-approach-yield-waits-for-visible-pickup-target",
+                        instruction="put the mug in the bowl",
+                        observation_image=str(image_path),
+                        step_id=4,
+                        environment_context={
+                            "objects": [
+                                {
+                                    "objectId": "Mug|1",
+                                    "objectType": "Mug",
+                                    "visible": False,
+                                    "pickupable": True,
+                                    "distance": 1.8,
+                                },
+                                {
+                                    "objectId": "Bowl|1",
+                                    "objectType": "Bowl",
+                                    "visible": True,
+                                    "receptacle": True,
+                                    "distance": 1.2,
+                                },
+                            ],
+                            "approach": {
+                                "verified": False,
+                                "objectId": "Mug|1",
+                                "source": "ai2thor_interactable_pose",
+                                "path_status": "PathComplete",
+                                "recommended_action": {
+                                    "type": "MOVE_FORWARD",
+                                    "args": {"distance": 0.25},
+                                },
+                            },
+                        },
+                    )
+                )
+
+        plan_action.assert_not_called()
+        self.assertEqual(response.action.type, "MOVE_FORWARD")
+        self.assertEqual(response.planner_source, "simulator_oracle")
+        self.assertEqual(response.fallback_reason, "verified_approach_navigation")
+        self.assertEqual(response.skill_call.name, "APPROACH_TARGET")
+
     def test_agent_rejects_partial_approach_path(self) -> None:
         agent = EmbodiedSearchAgent(
             self.config,

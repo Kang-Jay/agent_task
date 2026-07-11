@@ -80,24 +80,34 @@ class EmbodiedSearchAgent:
             step_id=request.step_id,
         ) or execution_plan
 
-        guidance_yielded_for_interaction = (
-            self._has_successful_real_vlm_step(state)
+        has_successful_real_vlm_step = self._has_successful_real_vlm_step(state)
+        approach_guidance_should_yield = (
+            has_successful_real_vlm_step
             and self._approach_guidance_should_yield(
                 task_plan=task_plan,
                 completion_status=completion_status,
                 state=state,
             )
         )
+        guidance_yielded_for_interaction = (
+            approach_guidance_should_yield
+            and self._interaction_continuation_ready(
+                task_plan=task_plan,
+                completion_status=completion_status,
+                environment_context=request.environment_context,
+            )
+        )
         approach_context = (
             (request.environment_context or {}).get("approach") or {}
         )
         approach_action = None
-        if self._has_successful_real_vlm_step(state) and not guidance_yielded_for_interaction:
+        if has_successful_real_vlm_step and not guidance_yielded_for_interaction:
             approach_action = self._verified_approach_action(
                 task_plan=task_plan,
                 completion_status=completion_status,
                 environment_context=request.environment_context,
                 state=state,
+                allow_yield=guidance_yielded_for_interaction,
             )
         if approach_action is not None:
             action = approach_action
@@ -766,10 +776,11 @@ class EmbodiedSearchAgent:
         completion_status: dict,
         environment_context: dict | None,
         state,
+        allow_yield: bool = True,
     ) -> Action | None:
         if completion_status.get("approach_verified"):
             return None
-        if EmbodiedSearchAgent._approach_guidance_should_yield(
+        if allow_yield and EmbodiedSearchAgent._approach_guidance_should_yield(
             task_plan=task_plan,
             completion_status=completion_status,
             state=state,
@@ -903,6 +914,48 @@ class EmbodiedSearchAgent:
         if "PutObject" in missing_actions and "PickupObject" not in missing_actions:
             return recent_approach_steps >= 2
         return recent_approach_steps >= 3
+
+    @classmethod
+    def _interaction_continuation_ready(
+        cls,
+        *,
+        task_plan: TaskPlan,
+        completion_status: dict,
+        environment_context: dict | None,
+    ) -> bool:
+        missing_actions = list(completion_status.get("missing_actions") or [])
+        if "PickupObject" in missing_actions:
+            target = cls._select_context_object(
+                task_plan=task_plan,
+                environment_context=environment_context,
+                require_flag="pickupable",
+                prefer_visible=True,
+            )
+            return bool(target and target.get("visible") is True)
+        if "PutObject" in missing_actions:
+            held = cls._held_inventory_object(environment_context)
+            receptacle = cls._select_context_object(
+                task_plan=task_plan,
+                environment_context=environment_context,
+                require_flag="receptacle",
+                prefer_visible=True,
+                exclude_inventory=True,
+            )
+            return bool(
+                held
+                and receptacle
+                and receptacle.get("visible") is True
+            )
+        if "OpenObject" in missing_actions:
+            target = cls._select_context_object(
+                task_plan=task_plan,
+                environment_context=environment_context,
+                require_flag="openable",
+                exclude_open=True,
+                prefer_visible=True,
+            )
+            return bool(target and target.get("visible") is True)
+        return True
 
     @staticmethod
     def _approach_target_matches_next_action(

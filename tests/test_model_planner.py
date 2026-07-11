@@ -463,20 +463,99 @@ class ModelPlannerTests(unittest.TestCase):
         )
         self.assertFalse(response.done)
 
-    def test_agent_uses_verified_approach_navigation_skill(self) -> None:
+    def test_first_step_approach_guidance_does_not_bypass_vlm(self) -> None:
         agent = EmbodiedSearchAgent(
             self.config,
             model_adapter=ModelAdapter(credentials=[]),
+        )
+        mock_result = {
+            "thought_summary": "Use the visual observation first, then approach the sofa.",
+            "action": {"type": "TURN_LEFT", "args": {"angle": 30}},
+            "skill_call": {
+                "name": "TURN_LEFT",
+                "args": {"angle": 30},
+                "preconditions": ["current robot RGB has been inspected"],
+                "expected_observation": "camera heading changes",
+            },
+            "confidence": 0.6,
+            "provider_used": "openai",
+            "model_used": "gpt-4o",
+            "vision_input_used": True,
+        }
+        image_path = (
+            self.config.image_dir / "ep_red_cup_visible_000.png"
+        )
+
+        with patch.object(agent.model_adapter, "plan_action", return_value=mock_result) as plan_action:
+            with patch.object(agent.model_adapter, "available", return_value=True):
+                response = agent.step(
+                    AgentRequest(
+                        session_id="test-first-step-approach-needs-vlm",
+                        instruction="找到沙发并坐下",
+                        observation_image=str(image_path),
+                        step_id=0,
+                        environment_context={
+                            "agent": {"isStanding": True},
+                            "objects": [
+                                {
+                                    "objectId": "Sofa|1",
+                                    "objectType": "Sofa",
+                                    "visible": True,
+                                }
+                            ],
+                            "approach": {
+                                "verified": False,
+                                "objectId": "Sofa|1",
+                                "source": "ai2thor_interactable_pose",
+                                "path_status": "PathComplete",
+                                "recommended_action": {
+                                    "type": "TURN_RIGHT",
+                                    "args": {"angle": 90.0},
+                                },
+                            },
+                        },
+                    )
+                )
+
+        plan_action.assert_called_once()
+        payload = plan_action.call_args.args[0]
+        self.assertTrue(payload["require_vision"])
+        self.assertTrue(payload["observation_image"].startswith("data:image/"))
+        self.assertEqual(response.action.type, "TURN_LEFT")
+        self.assertEqual(response.planner_source, "model_planner")
+        self.assertTrue(response.model_info["vision_input_used"])
+        self.assertNotEqual(response.skill_call.name, "APPROACH_TARGET")
+
+    def test_agent_uses_verified_approach_navigation_after_real_vlm_step(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        state = agent.memory.get_or_create(
+            "test-approach-skill-after-vlm",
+            "找到沙发并坐下",
+        )
+        state.steps.append(
+            {
+                "model_info": {
+                    "status": "ok",
+                    "provider": "openai",
+                    "model": "gpt-4o",
+                    "vision_input_used": True,
+                },
+                "action_success": True,
+                "executed_action": {"type": "TURN_LEFT", "args": {"angle": 30}},
+            }
         )
         image_path = (
             self.config.image_dir / "ep_red_cup_visible_000.png"
         )
         response = agent.step(
             AgentRequest(
-                session_id="test-approach-skill",
+                session_id="test-approach-skill-after-vlm",
                 instruction="找到沙发并坐下",
                 observation_image=str(image_path),
-                step_id=0,
+                step_id=1,
                 environment_context={
                     "agent": {"isStanding": True},
                     "objects": [

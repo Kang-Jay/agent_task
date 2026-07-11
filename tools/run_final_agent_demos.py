@@ -241,11 +241,20 @@ def _require_vase_into_box_evidence(
     steps: list[dict[str, Any]],
 ) -> None:
     final_state = completion.get("final_state") or {}
-    vase_id = str(final_state.get("vaseObjectId") or "")
-    box_id = str(final_state.get("boxObjectId") or "")
-    vase_parents = set(map(str, final_state.get("vaseParentReceptacles") or []))
-    box_contents = set(map(str, final_state.get("boxReceptacleObjectIds") or []))
-    inventory = final_state.get("inventoryObjects") or []
+    placement = final_state.get("placement")
+    if not isinstance(placement, dict):
+        placement = {
+            "movedObjectId": final_state.get("vaseObjectId"),
+            "receptacleObjectId": final_state.get("boxObjectId"),
+            "parentReceptacles": final_state.get("vaseParentReceptacles"),
+            "receptacleObjectIds": final_state.get("boxReceptacleObjectIds"),
+            "inventoryObjects": final_state.get("inventoryObjects"),
+        }
+    vase_id = str(placement.get("movedObjectId") or "")
+    box_id = str(placement.get("receptacleObjectId") or "")
+    vase_parents = set(map(str, placement.get("parentReceptacles") or []))
+    box_contents = set(map(str, placement.get("receptacleObjectIds") or []))
+    inventory = placement.get("inventoryObjects") or []
     if (
         not vase_id
         or not box_id

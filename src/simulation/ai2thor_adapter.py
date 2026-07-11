@@ -47,6 +47,9 @@ TARGET_ALIASES: dict[str, list[str]] = {
     "television": ["television", "tv", "电视", "电视机"],
     "door": ["door", "doorway", "门", "房门", "门口", "出口", "右边的门"],
     "vase": ["vase", "花瓶"],
+    "cup": ["cup", "杯子"],
+    "mug": ["mug", "马克杯"],
+    "bowl": ["bowl", "碗"],
     "box": ["box", "cardboardbox", "cardboard box", "纸箱", "箱子", "盒子"],
     "floorlamp": ["floorlamp", "floor lamp", "lamp", "灯", "落地灯"],
     "remotecontrol": ["remotecontrol", "remote control", "remote", "遥控器"],
@@ -960,24 +963,61 @@ class AI2ThorVisualSearchDemo:
         instruction: str,
         metadata: dict[str, Any],
     ) -> dict[str, Any] | None:
-        target_terms = set(self._target_terms(instruction))
-        if not {"vase", "box"}.issubset(target_terms):
+        target_terms = self._target_terms(instruction)
+        if len(target_terms) < 2 or not self._requests_put_interaction(instruction):
             return None
 
         objects = list(metadata.get("objects") or [])
-        vase = self._best_object_for_terms(objects, ["vase"])
-        box = self._best_object_for_terms(objects, ["box", "cardboardbox"])
-        if not vase or not box:
+        moved_object = self._best_object_for_terms(objects, [target_terms[0]])
+        receptacle = self._best_object_for_terms(
+            objects,
+            self._receptacle_terms(target_terms[1]),
+        )
+        if not moved_object or not receptacle:
             return None
+        moved_object_id = str(moved_object.get("objectId") or "")
+        receptacle_object_id = str(receptacle.get("objectId") or "")
+        parent_receptacles = list(moved_object.get("parentReceptacles") or [])
+        receptacle_object_ids = list(receptacle.get("receptacleObjectIds") or [])
+        inventory_objects = list(metadata.get("inventoryObjects") or [])
 
-        return {
-            "vaseObjectId": str(vase.get("objectId") or ""),
-            "boxObjectId": str(box.get("objectId") or ""),
-            "vaseParentReceptacles": list(vase.get("parentReceptacles") or []),
-            "boxReceptacleObjectIds": list(box.get("receptacleObjectIds") or []),
-            "inventoryObjects": list(metadata.get("inventoryObjects") or []),
+        final_state = {
+            "placement": {
+                "movedObjectId": moved_object_id,
+                "movedObjectType": str(moved_object.get("objectType") or ""),
+                "receptacleObjectId": receptacle_object_id,
+                "receptacleObjectType": str(receptacle.get("objectType") or ""),
+                "parentReceptacles": parent_receptacles,
+                "receptacleObjectIds": receptacle_object_ids,
+                "inventoryObjects": inventory_objects,
+            },
             "source": "ai2thor_final_metadata",
         }
+        if target_terms[0] == "vase" and target_terms[1] in {"box", "cardboardbox"}:
+            final_state.update(
+                {
+                    "vaseObjectId": moved_object_id,
+                    "boxObjectId": receptacle_object_id,
+                    "vaseParentReceptacles": parent_receptacles,
+                    "boxReceptacleObjectIds": receptacle_object_ids,
+                    "inventoryObjects": inventory_objects,
+                }
+            )
+        return final_state
+
+    @staticmethod
+    def _requests_put_interaction(instruction: str) -> bool:
+        lower = instruction.lower()
+        return any(
+            marker in lower
+            for marker in ("put", "place into", "place in", "放入", "放到", "放进", "放在")
+        )
+
+    @staticmethod
+    def _receptacle_terms(term: str) -> list[str]:
+        if term == "box":
+            return ["box", "cardboardbox"]
+        return [term]
 
     def _best_object_for_terms(
         self,

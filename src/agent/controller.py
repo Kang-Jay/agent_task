@@ -83,12 +83,14 @@ class EmbodiedSearchAgent:
         approach_context = (
             (request.environment_context or {}).get("approach") or {}
         )
-        approach_action = self._verified_approach_action(
-            task_plan=task_plan,
-            completion_status=completion_status,
-            environment_context=request.environment_context,
-            state=state,
-        )
+        approach_action = None
+        if self._has_successful_real_vlm_step(state):
+            approach_action = self._verified_approach_action(
+                task_plan=task_plan,
+                completion_status=completion_status,
+                environment_context=request.environment_context,
+                state=state,
+            )
         if approach_action is not None:
             action = approach_action
             skill_call = SkillCall(
@@ -689,6 +691,34 @@ class EmbodiedSearchAgent:
         if len(state.steps) % 4 == 2:
             return Action("TURN_LEFT", {"angle": self.config.raw["agent"]["default_turn_angle_degrees"]})
         return Action("TURN_RIGHT", {"angle": self.config.raw["agent"]["default_turn_angle_degrees"]})
+
+    @staticmethod
+    def _has_successful_real_vlm_step(state) -> bool:
+        for step in state.steps:
+            model_info = step.get("model_info") or {}
+            if str(model_info.get("status") or "") != "ok":
+                continue
+            if model_info.get("vision_input_used") is not True:
+                continue
+            provider = str(
+                model_info.get("provider")
+                or model_info.get("provider_used")
+                or ""
+            ).lower()
+            model = str(
+                model_info.get("model")
+                or model_info.get("model_used")
+                or ""
+            ).lower()
+            if not provider or not model:
+                continue
+            blocked_tokens = ("fake", "mock", "test")
+            if any(token in provider for token in blocked_tokens):
+                continue
+            if any(token in model for token in blocked_tokens):
+                continue
+            return True
+        return False
 
     @staticmethod
     def _verified_approach_action(

@@ -303,6 +303,32 @@ class TaskSemanticsTests(unittest.TestCase):
                     "doorObjectId": "Door|1",
                     "selectedDoorObjectId": "Door|1",
                     "door_selection_verified": True,
+                    "crossed_threshold": True,
+                    "requested_relation": "right",
+                    "relation_verified": False,
+                },
+            },
+        )
+        self.assertFalse(status["complete"])
+        self.assertFalse(status["exit_verified"])
+
+        status = plan.completion_status(
+            steps=[],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "objects": [
+                    {
+                        "objectId": "Door|1",
+                        "objectType": "Door",
+                        "visible": True,
+                    }
+                ],
+                "door_crossing": {
+                    "doorObjectId": "Door|1",
+                    "selectedDoorObjectId": "Door|1",
+                    "door_selection_verified": True,
                     "requested_relation": "right",
                     "relation_verified": True,
                     "crossed_threshold": True,
@@ -311,6 +337,108 @@ class TaskSemanticsTests(unittest.TestCase):
         )
         self.assertTrue(status["complete"])
         self.assertTrue(status["exit_verified"])
+
+    def test_put_completion_accepts_generic_placement_evidence(self):
+        plan = self.semantics.analyze(
+            "put mug in bowl",
+            mode="default",
+            legacy_actions=["ASK_CLARIFY"],
+        )
+        self.assertIn("PutObject", plan.required_actions)
+        self.assertIn("PickupObject", plan.required_actions)
+
+        status = plan.completion_status(
+            steps=[
+                {
+                    "executed_action": {"type": "PickupObject"},
+                    "action_success": True,
+                },
+                {
+                    "executed_action": {"type": "PutObject"},
+                    "action_success": True,
+                },
+            ],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "objects": [
+                    {
+                        "objectId": "Mug|1",
+                        "objectType": "Mug",
+                        "visible": True,
+                    }
+                ],
+                "approach": {
+                    "verified": True,
+                    "objectId": "Mug|1",
+                    "source": "ai2thor_interactable_pose",
+                },
+                "final_state": {
+                    "placement": {
+                        "movedObjectId": "Mug|1",
+                        "receptacleObjectId": "Bowl|1",
+                        "parentReceptacles": ["Bowl|1"],
+                        "receptacleObjectIds": ["Mug|1"],
+                        "inventoryObjects": [],
+                    },
+                    "source": "ai2thor_final_metadata",
+                },
+            },
+        )
+
+        self.assertTrue(status["complete"])
+        self.assertTrue(status["put_final_state_verified"])
+        self.assertEqual(status["missing_actions"], [])
+
+    def test_put_completion_rejects_generic_placement_wrong_receptacle(self):
+        plan = self.semantics.analyze(
+            "put mug in bowl",
+            mode="default",
+            legacy_actions=["ASK_CLARIFY"],
+        )
+        status = plan.completion_status(
+            steps=[
+                {
+                    "executed_action": {"type": "PickupObject"},
+                    "action_success": True,
+                },
+                {
+                    "executed_action": {"type": "PutObject"},
+                    "action_success": True,
+                },
+            ],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "objects": [
+                    {
+                        "objectId": "Mug|1",
+                        "objectType": "Mug",
+                        "visible": True,
+                    }
+                ],
+                "approach": {
+                    "verified": True,
+                    "objectId": "Mug|1",
+                    "source": "ai2thor_interactable_pose",
+                },
+                "final_state": {
+                    "placement": {
+                        "movedObjectId": "Mug|1",
+                        "receptacleObjectId": "Bowl|1",
+                        "parentReceptacles": ["Plate|1"],
+                        "receptacleObjectIds": [],
+                        "inventoryObjects": [],
+                    },
+                    "source": "ai2thor_final_metadata",
+                },
+            },
+        )
+
+        self.assertFalse(status["complete"])
+        self.assertFalse(status["put_final_state_verified"])
 
 
 if __name__ == "__main__":

@@ -208,24 +208,25 @@ class TaskPlan:
         elif "navigate_to" in self.task_types:
             put_requested = "PutObject" in self.required_actions
             final_state = context.get("final_state") or {}
-            vase_id = str(final_state.get("vaseObjectId") or "")
-            box_id = str(final_state.get("boxObjectId") or "")
-            vase_parent_receptacles = {
+            placement = self._placement_evidence(final_state)
+            moved_object_id = str(placement.get("movedObjectId") or "")
+            receptacle_object_id = str(placement.get("receptacleObjectId") or "")
+            parent_receptacles = {
                 str(value)
-                for value in final_state.get("vaseParentReceptacles") or []
+                for value in placement.get("parentReceptacles") or []
             }
-            box_receptacle_object_ids = {
+            receptacle_object_ids = {
                 str(value)
-                for value in final_state.get("boxReceptacleObjectIds") or []
+                for value in placement.get("receptacleObjectIds") or []
             }
-            inventory_objects = final_state.get("inventoryObjects") or []
+            inventory_objects = placement.get("inventoryObjects") or []
             put_final_state_verified = (
                 not put_requested
                 or (
-                    bool(vase_id)
-                    and bool(box_id)
-                    and box_id in vase_parent_receptacles
-                    and vase_id in box_receptacle_object_ids
+                    bool(moved_object_id)
+                    and bool(receptacle_object_id)
+                    and receptacle_object_id in parent_receptacles
+                    and moved_object_id in receptacle_object_ids
                     and not inventory_objects
                 )
             )
@@ -282,6 +283,19 @@ class TaskPlan:
             "final_state": final_state if "final_state" in locals() else {},
             "agent_is_standing": agent_is_standing,
             "subgoal_progress": subgoal_progress,
+        }
+
+    @staticmethod
+    def _placement_evidence(final_state: dict[str, Any]) -> dict[str, Any]:
+        placement = final_state.get("placement")
+        if isinstance(placement, dict):
+            return placement
+        return {
+            "movedObjectId": final_state.get("vaseObjectId"),
+            "receptacleObjectId": final_state.get("boxObjectId"),
+            "parentReceptacles": final_state.get("vaseParentReceptacles"),
+            "receptacleObjectIds": final_state.get("boxReceptacleObjectIds"),
+            "inventoryObjects": final_state.get("inventoryObjects"),
         }
 
     def matching_target_object_ids(

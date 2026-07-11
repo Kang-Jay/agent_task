@@ -3,7 +3,10 @@ from __future__ import annotations
 import unittest
 
 from tools.validate_final_demo_tasks import (
+    BOX_CANDIDATE_IDS,
     RIGHT_DOOR_ID,
+    VASE_BOX_SCENE,
+    VASE_CANDIDATE_IDS,
     door_crossing_evidence,
     object_position_from_id,
     select_object,
@@ -16,6 +19,11 @@ class FinalDemoValidationTests(unittest.TestCase):
             object_position_from_id("Box|-00.22|+00.08|-02.04"),
             {"x": -0.22, "y": 0.08, "z": -2.04},
         )
+
+    def test_vase_box_fixture_uses_verified_physics_scene(self) -> None:
+        self.assertEqual(VASE_BOX_SCENE, "FloorPlan203")
+        self.assertEqual(VASE_CANDIDATE_IDS, ("Vase|-04.27|+00.76|-00.44",))
+        self.assertEqual(BOX_CANDIDATE_IDS, ("Box|+00.96|+00.29|+06.19",))
 
     def test_door_crossing_requires_side_change_across_threshold(self) -> None:
         crossed = door_crossing_evidence(

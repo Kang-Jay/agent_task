@@ -35,12 +35,11 @@ RIGHT_DOOR_START_POSE = {
 }
 
 VASE_BOX_INSTRUCTION = "把花瓶放到纸箱里"
-VASE_BOX_SCENE = "FloorPlan211"
+VASE_BOX_SCENE = "FloorPlan203"
 VASE_CANDIDATE_IDS = (
-    "Vase|+03.70|+00.63|-01.01",
-    "Vase|-00.44|+00.56|+01.93",
+    "Vase|-04.27|+00.76|-00.44",
 )
-BOX_CANDIDATE_IDS = ("Box|-00.22|+00.08|-02.04",)
+BOX_CANDIDATE_IDS = ("Box|+00.96|+00.29|+06.19",)
 
 
 def object_position_from_id(object_id: str) -> dict[str, float]:
@@ -389,6 +388,12 @@ def run_vase_into_box(output_dir: Path) -> dict[str, Any]:
             "scene": VASE_BOX_SCENE,
             "instruction": VASE_BOX_INSTRUCTION,
             "required_evidence": "PickupObject and PutObject with strict receptacle postcondition",
+            "scene_selection_note": (
+                "FloorPlan211 contains a Box but Unity returns 'No valid positions "
+                "to place object found' for both Vase objects, even with forceAction. "
+                "FloorPlan203 is the verified AI2-THOR scene where Vase -> Box "
+                "succeeds with native physics and strict metadata postconditions."
+            ),
             "objects": {"vaseObjectId": vase_id, "boxObjectId": box_id},
             "final_state": {
                 "vaseParentReceptacles": final_vase.get("parentReceptacles"),

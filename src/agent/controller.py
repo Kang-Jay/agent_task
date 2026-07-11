@@ -788,6 +788,11 @@ class EmbodiedSearchAgent:
             return None
         context = environment_context or {}
         approach = context.get("approach") or {}
+        if EmbodiedSearchAgent._approach_guidance_is_stalled(
+            approach=approach,
+            state=state,
+        ):
+            return None
         if (
             not isinstance(approach, dict)
             or approach.get("source") != "ai2thor_interactable_pose"
@@ -914,6 +919,53 @@ class EmbodiedSearchAgent:
         if "PutObject" in missing_actions and "PickupObject" not in missing_actions:
             return recent_approach_steps >= 2
         return recent_approach_steps >= 3
+
+    @staticmethod
+    def _approach_guidance_is_stalled(*, approach: dict, state) -> bool:
+        if not isinstance(approach, dict):
+            return False
+        payload = approach.get("recommended_action")
+        if not isinstance(payload, dict):
+            return False
+        action_type = str(payload.get("type") or "")
+        if action_type not in {"TURN_LEFT", "TURN_RIGHT", "LOOK_UP", "LOOK_DOWN"}:
+            return False
+        args = payload.get("args")
+        if not isinstance(args, dict):
+            return False
+        value = args.get("angle")
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or abs(float(value)) > 5.0
+        ):
+            return False
+        recent_alignment_steps = 0
+        recent_directions: list[str] = []
+        for step in reversed(state.steps[-6:]):
+            if step.get("planner_source") != "simulator_oracle":
+                break
+            if step.get("fallback_reason") != "verified_approach_navigation":
+                break
+            previous_action = step.get("executed_action") or step.get("action") or {}
+            previous_type = str(previous_action.get("type") or "")
+            if previous_type not in {"TURN_LEFT", "TURN_RIGHT", "LOOK_UP", "LOOK_DOWN"}:
+                break
+            previous_args = previous_action.get("args") or {}
+            previous_value = previous_args.get("angle")
+            if (
+                isinstance(previous_value, bool)
+                or not isinstance(previous_value, (int, float))
+                or not math.isfinite(float(previous_value))
+                or abs(float(previous_value)) > 5.0
+            ):
+                break
+            if step.get("action_success") is not True:
+                break
+            recent_alignment_steps += 1
+            recent_directions.append(previous_type)
+        return recent_alignment_steps >= 4 and len(set(recent_directions)) > 1
 
     @classmethod
     def _interaction_continuation_ready(

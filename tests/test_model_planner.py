@@ -928,6 +928,83 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertEqual(response.fallback_reason, "verified_approach_navigation")
         self.assertEqual(response.skill_call.name, "APPROACH_TARGET")
 
+    def test_stalled_micro_alignment_yields_back_to_model(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        task_plan = agent.task_semantics.analyze(
+            "put the vase in the box",
+            mode="default",
+            legacy_actions=self.config.allowed_actions,
+        )
+        state = Mock(
+            steps=[
+                {
+                    "planner_source": "simulator_oracle",
+                    "fallback_reason": "verified_approach_navigation",
+                    "action_success": True,
+                    "executed_action": {"type": "TURN_RIGHT", "args": {"angle": 3.7}},
+                },
+                {
+                    "planner_source": "simulator_oracle",
+                    "fallback_reason": "verified_approach_navigation",
+                    "action_success": True,
+                    "executed_action": {"type": "TURN_LEFT", "args": {"angle": 3.7}},
+                },
+                {
+                    "planner_source": "simulator_oracle",
+                    "fallback_reason": "verified_approach_navigation",
+                    "action_success": True,
+                    "executed_action": {"type": "TURN_RIGHT", "args": {"angle": 3.7}},
+                },
+                {
+                    "planner_source": "simulator_oracle",
+                    "fallback_reason": "verified_approach_navigation",
+                    "action_success": True,
+                    "executed_action": {"type": "TURN_LEFT", "args": {"angle": 3.7}},
+                },
+            ]
+        )
+        context = {
+            "objects": [
+                {
+                    "objectId": "Vase|1",
+                    "objectType": "Vase",
+                    "visible": False,
+                    "pickupable": True,
+                },
+                {
+                    "objectId": "Box|1",
+                    "objectType": "Box",
+                    "visible": True,
+                    "receptacle": True,
+                },
+            ],
+            "approach": {
+                "verified": False,
+                "objectId": "Vase|1",
+                "source": "ai2thor_interactable_pose",
+                "path_status": "PoseAlignment",
+                "recommended_action": {
+                    "type": "TURN_RIGHT",
+                    "args": {"angle": 3.7},
+                },
+            },
+        }
+
+        action = agent._verified_approach_action(
+            task_plan=task_plan,
+            completion_status={
+                "approach_verified": False,
+                "missing_actions": ["PickupObject", "PutObject"],
+            },
+            environment_context=context,
+            state=state,
+        )
+
+        self.assertIsNone(action)
+
     def test_agent_rejects_partial_approach_path(self) -> None:
         agent = EmbodiedSearchAgent(
             self.config,

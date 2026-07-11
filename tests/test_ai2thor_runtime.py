@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import sys
+import types
 import unittest
+from unittest.mock import patch
 
 from src.simulation.ai2thor_runtime import (
     create_controller_safely,
     execute_controller_action,
+    resolve_ai2thor_platform,
 )
 
 
@@ -239,6 +243,26 @@ class AI2ThorRuntimeTests(unittest.TestCase):
             )
 
         self.assertEqual(controller.calls, [])
+
+    def test_resolve_ai2thor_platform_uses_requested_name(self):
+        fake_platform_module = types.ModuleType("ai2thor.platform")
+        fake_platform_module.Linux64 = type("Linux64", (), {})
+        with patch.dict(
+            sys.modules,
+            {"ai2thor.platform": fake_platform_module},
+        ):
+            platform = resolve_ai2thor_platform("Linux64")
+        self.assertEqual(getattr(platform, "__name__", ""), "Linux64")
+
+    def test_resolve_ai2thor_platform_rejects_unknown_name(self):
+        fake_platform_module = types.ModuleType("ai2thor.platform")
+        fake_platform_module.CloudRendering = type("CloudRendering", (), {})
+        with patch.dict(
+            sys.modules,
+            {"ai2thor.platform": fake_platform_module},
+        ):
+            with self.assertRaisesRegex(ValueError, "Unsupported AI2-THOR platform"):
+                resolve_ai2thor_platform("DefinitelyMissingPlatform")
 
 
 if __name__ == "__main__":

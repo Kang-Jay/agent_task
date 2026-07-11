@@ -2,12 +2,64 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+import importlib
 import math
+import os
 from typing import Any
 
 
 GRID_ALIGNED_ROTATIONS = (0.0, 90.0, 180.0, 270.0)
 DEFAULT_GRID_SIZE_METERS = 0.25
+DEFAULT_AI2THOR_PLATFORM = "CloudRendering"
+
+
+def ai2thor_platform_name() -> str:
+    """Return the requested AI2-THOR platform name.
+
+    CloudRendering remains the default for existing Linux/remote runs. Local
+    WSLg can set AI2THOR_PLATFORM=Linux64 to use the real Linux Unity build
+    through D3D12-backed OpenGL when Vulkan CloudRendering is unavailable.
+    """
+    return (os.getenv("AI2THOR_PLATFORM") or DEFAULT_AI2THOR_PLATFORM).strip()
+
+
+def resolve_ai2thor_platform(platform_name: str | None = None) -> Any:
+    """Resolve an ai2thor.platform class by name with a clear error."""
+    requested = (platform_name or ai2thor_platform_name()).strip()
+    if not requested:
+        requested = DEFAULT_AI2THOR_PLATFORM
+
+    try:
+        ai2thor_platform = importlib.import_module("ai2thor.platform")
+    except ModuleNotFoundError as exc:
+        if requested == DEFAULT_AI2THOR_PLATFORM:
+            return None
+        raise ValueError(
+            "This AI2-THOR installation does not expose ai2thor.platform; "
+            "install a platform-aware AI2-THOR build or leave AI2THOR_PLATFORM "
+            f"unset for legacy runtime behavior. Requested: {requested!r}."
+        ) from exc
+
+    try:
+        return getattr(ai2thor_platform, requested)
+    except AttributeError as exc:
+        available = sorted(
+            name
+            for name in dir(ai2thor_platform)
+            if name and name[0].isupper() and not name.startswith("_")
+        )
+        raise ValueError(
+            f"Unsupported AI2-THOR platform {requested!r}; "
+            f"available platforms: {', '.join(available)}"
+        ) from exc
+
+
+def ai2thor_platform_kwargs(platform_name: str | None = None) -> dict[str, Any]:
+    """Return Controller kwargs for platform-aware and legacy AI2-THOR builds."""
+    platform = resolve_ai2thor_platform(platform_name)
+    if platform is None:
+        return {}
+    return {"platform": platform}
 
 
 def _metadata_snapshot(event: Any) -> dict[str, Any]:

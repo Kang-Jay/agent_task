@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import os
 import sys
 import tempfile
 import types
@@ -289,6 +290,7 @@ class AI2ThorPostActionRenderingTests(unittest.TestCase):
         fake_controller_module.Controller = object
         fake_platform_module = types.ModuleType("ai2thor.platform")
         fake_platform_module.CloudRendering = object()
+        fake_platform_module.Linux64 = object()
         fake_ai2thor.controller = fake_controller_module
         fake_ai2thor.platform = fake_platform_module
 
@@ -312,7 +314,8 @@ class AI2ThorPostActionRenderingTests(unittest.TestCase):
                     adapter_module,
                     "create_controller_safely",
                     return_value=controller,
-                ),
+                ) as create_controller,
+                patch.dict(os.environ, {"AI2THOR_PLATFORM": "Linux64"}),
                 patch.object(
                     demo,
                     "_initialize_map_camera",
@@ -339,6 +342,10 @@ class AI2ThorPostActionRenderingTests(unittest.TestCase):
                 )
 
             self.assertEqual(len(result.steps), 1)
+            self.assertIs(
+                create_controller.call_args.kwargs["platform"],
+                fake_platform_module.Linux64,
+            )
             step = result.steps[0]
             self.assertTrue(
                 step.observation_path.endswith(

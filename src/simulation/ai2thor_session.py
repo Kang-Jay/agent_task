@@ -14,6 +14,7 @@ from src.simulation.ai2thor_actions import AI2ThorActionCatalog, AI2ThorActionEx
 from src.simulation.ai2thor_postconditions import AI2ThorPostconditionVerifier
 from src.simulation.ai2thor_runtime import (
     DEFAULT_GRID_SIZE_METERS,
+    ai2thor_platform_kwargs,
     create_controller_safely,
     should_snap_to_grid,
 )
@@ -154,10 +155,9 @@ class AI2ThorSessionManager:
         if self._controller_factory is not None:
             return self._controller_factory(**kwargs)
         from ai2thor.controller import Controller  # type: ignore
-        from ai2thor.platform import CloudRendering  # type: ignore
 
         self.catalog.verify_installed_runtime()
-        kwargs["platform"] = CloudRendering
+        kwargs.update(ai2thor_platform_kwargs())
         return create_controller_safely(Controller, **kwargs)
 
     def _initialize_session(

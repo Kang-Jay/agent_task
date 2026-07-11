@@ -26,6 +26,7 @@ from src.simulation.ai2thor_interactions import (
 from src.simulation.ai2thor_postconditions import AI2ThorPostconditionVerifier
 from src.simulation.ai2thor_runtime import (
     DEFAULT_GRID_SIZE_METERS,
+    ai2thor_platform_kwargs,
     create_controller_safely,
     should_snap_to_grid,
 )
@@ -180,7 +181,6 @@ class AI2ThorVisualSearchDemo:
         cancel_event: threading.Event | None = None,
     ) -> DemoResult:
         from ai2thor.controller import Controller  # type: ignore
-        from ai2thor.platform import CloudRendering  # type: ignore
 
         self.action_catalog.verify_installed_runtime()
         max_steps = min(int(max_steps), self.config.max_steps)
@@ -224,7 +224,7 @@ class AI2ThorVisualSearchDemo:
             controller = create_controller_safely(
                 Controller,
                 scene=self.scene,
-                platform=CloudRendering,
+                **ai2thor_platform_kwargs(),
                 agentMode=self.agent_mode,
                 width=960,
                 height=540,
@@ -370,7 +370,41 @@ class AI2ThorVisualSearchDemo:
                     task_plan=response_dict.get("task_plan"),
                     completion_status=response_dict.get("completion_status"),
                 )
-                if grounded_target and visual_search_task:
+                vlm_confirmation = self._vlm_target_confirmation(response_dict)
+                vlm_authoritative = self.config.visual_search_authority == "vlm"
+                if visual_search_task and vlm_authoritative:
+                    # The VLM's own visual judgment is authoritative. Instance
+                    # segmentation (grounded_target) is retained only as
+                    # cross-validation evidence, never as the decider.
+                    if (
+                        vlm_confirmation["target_visible"]
+                        and vlm_confirmation["target_confidence"]
+                        >= self.config.stop_confidence_threshold
+                    ):
+                        confirmed_target_steps += 1
+                    else:
+                        confirmed_target_steps = 0
+                    if confirmed_target_steps >= 1:
+                        action_type = (
+                            "STOP" if confirmed_target_steps >= 2 else "INSPECT"
+                        )
+                        self._apply_vlm_target_confirmation(
+                            response_dict,
+                            confirmation=vlm_confirmation,
+                            grounded_target=grounded_target,
+                            action_type=action_type,
+                            confirmed_steps=confirmed_target_steps,
+                        )
+                    else:
+                        action_type = response_dict["action"]["type"]
+                        if self._should_force_search(
+                            visual_search_task=visual_search_task,
+                            action_type=action_type,
+                        ):
+                            action_type = self._search_action(step_id)
+                            self._apply_search_response(response_dict, action_type)
+                elif grounded_target and visual_search_task:
+                    # Legacy: simulator instance segmentation is authoritative.
                     if grounded_target["confidence"] >= self.config.stop_confidence_threshold:
                         confirmed_target_steps += 1
                     else:
@@ -858,6 +892,94 @@ class AI2ThorVisualSearchDemo:
             if best is None or candidate["confidence"] > best["confidence"]:
                 best = candidate
         return best
+
+    @staticmethod
+    def _vlm_target_confirmation(response: dict[str, Any]) -> dict[str, Any]:
+        """Extract the VLM's own visual target-confirmation signal.
+
+        The model reports ``target_visible`` and ``target_confidence`` in its
+        planner JSON (surfaced through ``model_info``). When the VLM is the
+        authority for visual search, these drive INSPECT/STOP instead of the
+        simulator's instance segmentation.
+        """
+        model_info = response.get("model_info") or {}
+        target_visible = bool(model_info.get("target_visible", False))
+        try:
+            target_confidence = float(model_info.get("target_confidence", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            target_confidence = 0.0
+        target_confidence = max(0.0, min(1.0, target_confidence))
+        vision_input_used = bool(model_info.get("vision_input_used", False))
+        return {
+            "target_visible": target_visible and vision_input_used,
+            "target_confidence": target_confidence,
+            "vision_input_used": vision_input_used,
+        }
+
+    def _apply_vlm_target_confirmation(
+        self,
+        response: dict[str, Any],
+        *,
+        confirmation: dict[str, Any],
+        grounded_target: dict[str, Any] | None,
+        action_type: str,
+        confirmed_steps: int,
+    ) -> None:
+        """Commit an INSPECT/STOP decision driven by the VLM's visual judgment.
+
+        Segmentation, when present, is attached as cross-validation evidence
+        only; the authoritative confidence comes from the VLM.
+        """
+        done = action_type == "STOP"
+        confidence = confirmation["target_confidence"]
+        response["action"]["type"] = action_type
+        response["action"]["args"] = {"reason": "confirmed by VLM visual grounding"}
+        response["confidence"] = confidence
+        response["done"] = done
+        response["planner_source"] = "model_planner"
+        cross_check = None
+        if grounded_target is not None:
+            cross_check = {
+                "object_type": grounded_target.get("object_type"),
+                "object_id": grounded_target.get("object_id"),
+                "segmentation_confidence": grounded_target.get("confidence"),
+                "agreement": True,
+            }
+        response["skill_call"] = {
+            "name": action_type,
+            "args": response["action"]["args"],
+            "preconditions": ["target visually confirmed by the VLM"],
+            "expected_observation": (
+                "episode terminates with a VLM-confirmed target"
+                if done
+                else "target remains visible for one more confirmation step"
+            ),
+        }
+        response["thought"] = (
+            f"The VLM visually confirms the requested target with confidence "
+            f"{confidence:.2f}. "
+            f"{'The agent stops after confirmation.' if done else 'The agent inspects once before final confirmation.'}"
+        )
+        preserved_trace = (response.get("structured_thought") or {}).get("decision_trace")
+        response["structured_thought"] = {
+            "observation": f"VLM 视觉确认目标可见，置信度 {confidence:.2f}",
+            "reasoning": (
+                "VLM 已在当前画面中确认目标物体。"
+                + ("已完成确认，停止搜索。" if done else "需要再次检查确认。")
+            ),
+            "action": "停止" if done else "仔细检查",
+            "confidence": f"{confidence:.3f}",
+        }
+        if preserved_trace:
+            response["structured_thought"]["decision_trace"] = preserved_trace
+        observation = response.setdefault("observation", {})
+        observation["target_visible"] = True
+        observation["scene_summary"] = (
+            "Target object is visually grounded by the VLM."
+        )
+        observation["target_confirmation_source"] = "vlm"
+        if cross_check is not None:
+            observation["segmentation_cross_check"] = cross_check
 
     def _apply_grounded_target(self, response: dict[str, Any], target: dict[str, Any], action_type: str, confirmed_steps: int) -> None:
         done = action_type == "STOP"

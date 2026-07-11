@@ -360,6 +360,66 @@ class AI2ThorInteractionResolverTests(unittest.TestCase):
         self.assertEqual(placed.args, {"objectId": "Cabinet|1"})
         self.assertEqual(placed.target_object["objectId"], "Cabinet|1")
 
+    def test_vase_into_box_binds_held_object_and_receptacle_roles(self):
+        metadata = copy.deepcopy(self.metadata)
+        metadata["objects"].extend(
+            [
+                {
+                    "objectId": "Vase|1",
+                    "objectType": "Vase",
+                    "name": "Vase_1",
+                    "distance": 0.5,
+                    "visible": True,
+                    "pickupable": True,
+                    "receptacle": False,
+                    "openable": False,
+                    "isOpen": False,
+                    "isPickedUp": False,
+                    "parentReceptacles": [],
+                    "receptacleObjectIds": [],
+                },
+                {
+                    "objectId": "CardboardBox|1",
+                    "objectType": "CardboardBox",
+                    "name": "CardboardBox_1",
+                    "distance": 0.9,
+                    "visible": True,
+                    "pickupable": False,
+                    "receptacle": True,
+                    "openable": False,
+                    "isOpen": False,
+                    "isPickedUp": False,
+                    "parentReceptacles": [],
+                    "receptacleObjectIds": [],
+                },
+            ]
+        )
+
+        picked = self.resolver.resolve(
+            action="PickupObject",
+            args={"objectType": "Vase"},
+            instruction="把花瓶放到纸箱里",
+            metadata=metadata,
+        )
+        self.assertTrue(picked.valid, picked.errors)
+        self.assertEqual(picked.args, {"objectId": "Vase|1"})
+        metadata["inventoryObjects"] = [
+            {"objectId": "Vase|1", "objectType": "Vase"}
+        ]
+
+        placed = self.resolver.resolve(
+            action="PutObject",
+            args={
+                "object": "Vase",
+                "receptacleType": "CardboardBox",
+            },
+            instruction="把花瓶放到纸箱里",
+            metadata=metadata,
+        )
+        self.assertTrue(placed.valid, placed.errors)
+        self.assertEqual(placed.args, {"objectId": "CardboardBox|1"})
+        self.assertEqual(placed.target_object["objectType"], "CardboardBox")
+
     def test_planner_prompt_contains_environment_object_ids_and_rules(self):
         prompt = ModelAdapter()._build_planner_prompt(
             {

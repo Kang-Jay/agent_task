@@ -22,7 +22,7 @@ def valid_manifest() -> dict:
         "instruction": "Find the television",
         "task_type": "visual_search",
         "target": {"object_type": "Television"},
-        "required_actions": [],
+        "required_actions": ["STOP"],
         "allows_approximate_success": False,
     }
     reference = {
@@ -44,12 +44,15 @@ def valid_manifest() -> dict:
                     "initial_pose": copy.deepcopy(pose),
                     "task": copy.deepcopy(task),
                     "reference": copy.deepcopy(reference),
-                    "result_file": f"{pair_id}-{group}/ai2thor_demo_summary.json",
+                    "result_file": f"validation/{group}/{pair_id}.json",
                 }
             )
     return {
         "schema_version": "1.0",
         "benchmark_id": "unit-test",
+        "dataset_version": "unit-test",
+        "inference_only": True,
+        "description": "Unit-test manifest for evaluation schema validation.",
         "protocol": {
             "required_groups": ["oracle", "non_oracle"],
             "minimum_scene_count": 2,
@@ -100,6 +103,24 @@ class EvaluationManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ManifestValidationError, "relative JSON path"):
             parse_manifest(raw)
 
+    def test_windows_drive_result_file_is_rejected(self) -> None:
+        raw = valid_manifest()
+        raw["episodes"][0]["result_file"] = "C:/escape.json"
+        with self.assertRaisesRegex(ManifestValidationError, "safe relative JSON path"):
+            parse_manifest(raw)
+
+    def test_result_file_must_match_split_and_group(self) -> None:
+        raw = valid_manifest()
+        raw["episodes"][0]["result_file"] = "validation/non_oracle/wrong.json"
+        with self.assertRaisesRegex(ManifestValidationError, "<split>/<group>"):
+            parse_manifest(raw)
+
+    def test_duplicate_result_file_is_rejected(self) -> None:
+        raw = valid_manifest()
+        raw["episodes"][1]["result_file"] = raw["episodes"][0]["result_file"]
+        with self.assertRaisesRegex(ManifestValidationError, "result_file"):
+            parse_manifest(raw)
+
     def test_non_finite_pose_is_rejected(self) -> None:
         raw = valid_manifest()
         raw["episodes"][0]["initial_pose"]["position"]["x"] = float("nan")
@@ -113,6 +134,56 @@ class EvaluationManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ManifestValidationError, "at least 2 scenes"):
             parse_manifest(raw)
 
+    def test_inference_only_must_be_explicit_true(self) -> None:
+        raw = valid_manifest()
+        raw["inference_only"] = False
+        with self.assertRaisesRegex(ManifestValidationError, "inference_only"):
+            parse_manifest(raw)
+
+        raw = valid_manifest()
+        raw.pop("inference_only")
+        with self.assertRaisesRegex(ManifestValidationError, "inference_only"):
+            parse_manifest(raw)
+
+        raw = valid_manifest()
+        raw["inference_only"] = "true"
+        with self.assertRaisesRegex(ManifestValidationError, "inference_only"):
+            parse_manifest(raw)
+
+    def test_unknown_keys_are_rejected(self) -> None:
+        raw = valid_manifest()
+        raw["training_hint"] = "never allow hidden eval knobs"
+        with self.assertRaisesRegex(ManifestValidationError, "unknown keys"):
+            parse_manifest(raw)
+
+    def test_interaction_task_requires_source_destination_and_actions(self) -> None:
+        raw = valid_manifest()
+        task = raw["episodes"][0]["task"]
+        task["task_type"] = "interaction"
+        task["target"] = {
+            "object_type": "Vase",
+            "source_object_type": "Vase",
+        }
+        task["required_actions"] = ["PickupObject"]
+        with self.assertRaisesRegex(ManifestValidationError, "destination_object_type"):
+            parse_manifest(raw)
+
+        task["target"]["destination_object_type"] = "Box"
+        with self.assertRaisesRegex(ManifestValidationError, "PickupObject and PutObject"):
+            parse_manifest(raw)
+
+    def test_unknown_required_action_is_rejected(self) -> None:
+        raw = valid_manifest()
+        raw["episodes"][0]["task"]["required_actions"] = ["STOP", "Dance"]
+        with self.assertRaisesRegex(ManifestValidationError, "unsupported actions"):
+            parse_manifest(raw)
+
+    def test_instruction_mojibake_is_rejected(self) -> None:
+        raw = valid_manifest()
+        raw["episodes"][0]["task"]["instruction"] = "鎵惧埌鐢佃"
+        with self.assertRaisesRegex(ManifestValidationError, "mojibake"):
+            parse_manifest(raw)
+
     def test_plan2_manifest_file_is_inference_only_and_paired(self) -> None:
         manifest = load_manifest("configs/evaluation/plan2_multiscene_v1.json")
         coverage = manifest.coverage()
@@ -123,6 +194,12 @@ class EvaluationManifestTests(unittest.TestCase):
         self.assertGreaterEqual(len(coverage["scenes"]), 3)
         self.assertIn("interaction", coverage["task_types"])
         self.assertIn("visual_search", coverage["task_types"])
+        for episode in manifest.episodes:
+            self.assertEqual(
+                episode.result_file.split("/")[:2],
+                [episode.split, episode.group],
+            )
+            self.assertNotRegex(episode.task.instruction, r"[鎵鎶鐢搴绠噷]")
 
     def test_requirements_are_pinned_to_remote_runtime_versions(self) -> None:
         requirements = Path("requirements.txt").read_text(encoding="utf-8")

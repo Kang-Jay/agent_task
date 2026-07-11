@@ -14,6 +14,7 @@ CABINET_ID = "Cabinet|1"
 BOX_ID = "Box|1"
 MUG_ID = "Mug|1"
 PLATE_ID = "Plate|1"
+VASE_ID = "Vase|1"
 
 
 def _object(
@@ -81,6 +82,12 @@ class _StatefulInteractionController:
                     object_id=MUG_ID,
                     object_type="Mug",
                     distance=0.6,
+                    pickupable=True,
+                ),
+                _object(
+                    object_id=VASE_ID,
+                    object_type="Vase",
+                    distance=0.5,
                     pickupable=True,
                 ),
                 _object(
@@ -303,6 +310,52 @@ class AI2ThorInteractionChainTests(unittest.TestCase):
         self.assertFalse(
             binding.valid,
             "PutObject must reject a task that requests a mug while a plate is held",
+        )
+
+    def test_vase_into_box_chain_uses_box_as_receptacle_and_verifies_state(self):
+        instruction = "把花瓶放到纸箱里"
+        picked_up = self._resolve_and_execute(
+            action="PickupObject",
+            args={"objectType": "Vase"},
+            instruction=instruction,
+        )
+        self.assertEqual(picked_up["execution"]["args"], {"objectId": VASE_ID})
+        self.assertEqual(
+            picked_up["inventory_objects"],
+            [{"objectId": VASE_ID, "objectType": "Vase"}],
+        )
+
+        placed = self._resolve_and_execute(
+            action="PutObject",
+            args={
+                "object": "Vase",
+                "receptacleType": "Box",
+            },
+            instruction=instruction,
+        )
+
+        self.assertEqual(placed["execution"]["args"], {"objectId": BOX_ID})
+        self.assertEqual(placed["inventory_objects"], [])
+        self.assertTrue(placed["postcondition"]["checked"])
+        self.assertTrue(placed["postcondition"]["passed"])
+        self.assertEqual(
+            placed["postcondition"]["evidence"]["receptacleObjectId"],
+            BOX_ID,
+        )
+        self.assertEqual(
+            placed["postcondition"]["evidence"]["releasedObjectIds"],
+            [VASE_ID],
+        )
+        self.assertEqual(
+            placed["postcondition"]["evidence"]["placedObjectIds"],
+            [VASE_ID],
+        )
+        self.assertEqual(
+            self.controller.calls,
+            [
+                {"action": "PickupObject", "objectId": VASE_ID},
+                {"action": "PutObject", "objectId": BOX_ID},
+            ],
         )
 
 

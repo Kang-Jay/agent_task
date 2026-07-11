@@ -54,6 +54,12 @@ class TaskPlan:
             action for action in self.required_actions if action not in successful_actions
         ]
         context = environment_context or {}
+        exit_evidence = context.get("exit") or context.get("door_crossing") or {}
+        exit_verified = bool(
+            exit_evidence.get("crossed_threshold")
+            or exit_evidence.get("crossed")
+            or exit_evidence.get("passed")
+        )
         agent_state = context.get("agent") or {}
         matching_targets = [
             item
@@ -150,6 +156,34 @@ class TaskPlan:
                 if complete
                 else "target confirmation threshold has not been met"
             )
+        elif "exit_room" in self.task_types:
+            located = (
+                target_visible
+                or target_visible_in_environment
+                or approach_verified
+                or bool(exit_evidence.get("doorObjectId"))
+            )
+            complete = located and exit_verified
+            reason = (
+                "doorway threshold crossing is verified by the environment"
+                if complete
+                else "exit task requires crossed-threshold evidence before termination"
+            )
+            subgoal_progress = [
+                {
+                    "id": "locate_exit",
+                    "complete": located,
+                    "evidence": (
+                        exit_evidence.get("doorObjectId")
+                        or "door or doorway visual/environment evidence"
+                    ),
+                },
+                {
+                    "id": "cross_threshold",
+                    "complete": exit_verified,
+                    "evidence": exit_evidence or "no threshold-crossing evidence",
+                },
+            ]
         elif "navigate_to" in self.task_types:
             complete = approach_verified and not missing_actions
             reason = (
@@ -185,6 +219,8 @@ class TaskPlan:
             "approach_verified": approach_verified,
             "approach_object_id": approach_object_id or None,
             "approach_source": approach_source,
+            "exit_verified": exit_verified,
+            "exit_evidence": exit_evidence,
             "agent_is_standing": agent_is_standing,
             "subgoal_progress": subgoal_progress,
         }
@@ -209,12 +245,17 @@ class TaskPlan:
             "sofa": ("sofa", "couch", "沙发"),
             "armchair": ("armchair", "chair", "扶手椅", "椅子"),
             "television": ("television", "tv", "电视"),
+            "door": ("door", "门", "房门", "右边的门"),
+            "doorway": ("doorway", "door", "门", "门口", "出口"),
             "cup": ("cup", "杯子"),
             "mug": ("mug", "马克杯", "杯子"),
             "fridge": ("fridge", "refrigerator", "冰箱"),
             "cabinet": ("cabinet", "柜子"),
             "bowl": ("bowl", "碗"),
             "egg": ("egg", "鸡蛋"),
+            "vase": ("vase", "花瓶"),
+            "box": ("box", "纸箱", "箱子", "盒子"),
+            "cardboardbox": ("cardboardbox", "cardboard box", "box", "纸箱", "箱子"),
         }
         terms = aliases.get(object_type, (object_type,))
         return bool(object_type) and any(term in instruction for term in terms)
@@ -278,10 +319,18 @@ class TaskSemantics:
             for marker in (
                 "go to",
                 "walk to",
+                "walk out",
+                "go out",
+                "exit",
+                "leave the room",
                 "move to",
                 "approach",
                 "navigate to",
                 "走到",
+                "走出",
+                "走出去",
+                "出去",
+                "离开房间",
                 "移动到",
                 "靠近",
                 "导航到",
@@ -292,6 +341,28 @@ class TaskSemantics:
             if any(marker in normalized for marker in markers):
                 task_types.append(task_type)
                 required_actions.append(action)
+        exit_requested = any(
+            marker in normalized
+            for marker in (
+                "walk out",
+                "go out",
+                "exit",
+                "leave the room",
+                "走出去",
+                "走出",
+                "出去",
+                "离开房间",
+            )
+        )
+        if exit_requested:
+            task_types.extend(("navigate_to", "exit_room"))
+            limitations.append("exit_requires_crossed_threshold_verification")
+
+        put_requested = "PutObject" in required_actions
+        if put_requested:
+            task_types.append("navigate_to")
+            if "PickupObject" not in required_actions:
+                required_actions.insert(0, "PickupObject")
 
         sit_requested = any(
             marker in normalized
@@ -325,6 +396,12 @@ class TaskSemantics:
         elif task_types == ["visual_search"]:
             clarification = None
             completion_rule = "target must be visually grounded above the configured stop threshold"
+        elif exit_requested:
+            clarification = None
+            completion_rule = (
+                "ground the requested door or doorway, navigate through the right-side "
+                "threshold, then terminate only after crossed-threshold evidence"
+            )
         elif "navigate_to" in task_types and not required_actions:
             clarification = None
             completion_rule = "environment must verify target proximity before Done"

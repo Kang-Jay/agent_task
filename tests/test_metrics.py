@@ -237,6 +237,73 @@ class MetricsTests(unittest.TestCase):
         self.assertIsNone(metrics.spl)
         self.assertEqual(metrics.spl_coverage, 0.0)
 
+    def test_interaction_requires_passed_postconditions(self) -> None:
+        episode_data = {
+            "episode_id": "put_wrong_receptacle",
+            "task": {
+                "task_type": "interaction",
+                "target": {
+                    "object_type": "Vase",
+                    "source_object_type": "Vase",
+                    "destination_object_type": "Box",
+                },
+                "required_actions": ["PickupObject", "PutObject"],
+                "allows_approximate_success": False,
+            },
+        }
+        trajectory_data = {
+            "steps": [
+                {
+                    "action": {"type": "PickupObject"},
+                    "done": False,
+                    "success": True,
+                    "postcondition": {"passed": True},
+                },
+                {
+                    "action": {"type": "PutObject"},
+                    "done": True,
+                    "success": True,
+                    "postcondition": {
+                        "passed": False,
+                        "evidence": {"receptacleObjectId": "WrongBox|1"},
+                    },
+                },
+            ]
+        }
+
+        metrics = evaluate_episode(episode_data, trajectory_data, self.config)
+
+        self.assertFalse(metrics.success)
+        self.assertFalse(metrics.strict_success)
+        self.assertFalse(metrics.interaction_success)
+
+    def test_exit_navigation_requires_crossing_evidence(self) -> None:
+        episode_data = {
+            "episode_id": "right_door_exit",
+            "task": {
+                "task_type": "navigation",
+                "target": {"object_type": "Door"},
+                "required_actions": [],
+                "allows_approximate_success": False,
+            },
+        }
+        trajectory_data = {
+            "steps": [
+                {
+                    "action": {"type": "Done"},
+                    "done": True,
+                    "success": True,
+                }
+            ]
+        }
+
+        metrics = evaluate_episode(episode_data, trajectory_data, self.config)
+        self.assertFalse(metrics.success)
+
+        trajectory_data["door_crossing"] = {"crossed_threshold": True}
+        metrics = evaluate_episode(episode_data, trajectory_data, self.config)
+        self.assertTrue(metrics.success)
+
 
 if __name__ == "__main__":
     unittest.main()

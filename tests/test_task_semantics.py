@@ -210,6 +210,55 @@ class TaskSemanticsTests(unittest.TestCase):
         self.assertTrue(status["complete"])
         self.assertEqual(status["missing_actions"], [])
 
+    def test_right_door_exit_requires_crossed_threshold_evidence(self):
+        plan = self.semantics.analyze(
+            "找到右边的门，然后走出去",
+            mode="default",
+            legacy_actions=["STOP", "ASK_CLARIFY"],
+        )
+        self.assertIn("exit_room", plan.task_types)
+        self.assertNotIn("Done", plan.required_actions)
+
+        status = plan.completion_status(
+            steps=[],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "objects": [
+                    {
+                        "objectId": "Door|1",
+                        "objectType": "Door",
+                        "visible": True,
+                    }
+                ]
+            },
+        )
+        self.assertFalse(status["complete"])
+        self.assertFalse(status["exit_verified"])
+
+        status = plan.completion_status(
+            steps=[],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "objects": [
+                    {
+                        "objectId": "Door|1",
+                        "objectType": "Door",
+                        "visible": True,
+                    }
+                ],
+                "door_crossing": {
+                    "doorObjectId": "Door|1",
+                    "crossed_threshold": True,
+                },
+            },
+        )
+        self.assertTrue(status["complete"])
+        self.assertTrue(status["exit_verified"])
+
 
 if __name__ == "__main__":
     unittest.main()

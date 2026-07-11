@@ -1015,6 +1015,15 @@ class AI2ThorVisualSearchDemo:
         }
 
     @staticmethod
+    def _metadata_agent_heading(metadata: dict[str, Any]) -> float:
+        agent = metadata.get("agent") or {}
+        rotation = agent.get("rotation") or {}
+        try:
+            return float(rotation.get("y", 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
     def _side_of_threshold(
         value: float,
         threshold: float,
@@ -1321,6 +1330,53 @@ class AI2ThorVisualSearchDemo:
             "center_distance": center_distance,
         }
 
+    @classmethod
+    def _door_relation_to_agent(
+        cls,
+        *,
+        door: dict[str, Any],
+        start_metadata: dict[str, Any],
+        requested_relation: str | None,
+    ) -> dict[str, Any]:
+        center = cls._door_center_xz(door)
+        start_position = cls._metadata_agent_position(start_metadata)
+        heading = cls._metadata_agent_heading(start_metadata)
+        if center is None:
+            return {
+                "requested_relation": requested_relation,
+                "relation_to_agent": None,
+                "relation_verified": requested_relation is None,
+                "relation_score": None,
+                "relation_frame": "agent_initial_heading",
+                "relation_reason": "door center is unavailable",
+            }
+        yaw = math.radians(heading)
+        right_vector = (math.cos(yaw), -math.sin(yaw))
+        dx = center[0] - start_position["x"]
+        dz = center[1] - start_position["z"]
+        right_score = dx * right_vector[0] + dz * right_vector[1]
+        epsilon = DEFAULT_GRID_SIZE_METERS * 0.2
+        relation_to_agent = (
+            "right"
+            if right_score > epsilon
+            else "left"
+            if right_score < -epsilon
+            else "center"
+        )
+        return {
+            "requested_relation": requested_relation,
+            "relation_to_agent": relation_to_agent,
+            "relation_verified": (
+                requested_relation is None
+                or relation_to_agent == requested_relation
+            ),
+            "relation_score": right_score,
+            "relation_frame": "agent_initial_heading",
+            "relation_reason": (
+                f"door center is {relation_to_agent} of initial heading"
+            ),
+        }
+
     def _door_crossing_context(
         self,
         *,
@@ -1352,6 +1408,11 @@ class AI2ThorVisualSearchDemo:
         )
         candidates: list[dict[str, Any]] = []
         for door in doors:
+            relation_evidence = self._door_relation_to_agent(
+                door=door,
+                start_metadata=start_metadata,
+                requested_relation=requested_relation,
+            )
             geometries = self._door_threshold_geometries(
                 door,
                 before_position=before_position,
@@ -1445,6 +1506,15 @@ class AI2ThorVisualSearchDemo:
                             "end_signed_distance"
                         ],
                         "requested_relation": requested_relation,
+                        "relation_to_agent": relation_evidence[
+                            "relation_to_agent"
+                        ],
+                        "relation_verified": relation_evidence[
+                            "relation_verified"
+                        ],
+                        "relation_score": relation_evidence["relation_score"],
+                        "relation_frame": relation_evidence["relation_frame"],
+                        "relation_reason": relation_evidence["relation_reason"],
                         "door_selection_verified": door_selection_verified,
                         "selectedDoorObjectId": selected_door_object_id or None,
                         "selection_source": (

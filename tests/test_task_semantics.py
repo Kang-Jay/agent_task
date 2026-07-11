@@ -277,6 +277,34 @@ class TaskSemanticsTests(unittest.TestCase):
                     "doorObjectId": "Door|1",
                     "selectedDoorObjectId": "Door|1",
                     "door_selection_verified": True,
+                    "requested_relation": "right",
+                    "relation_verified": False,
+                    "crossed_threshold": True,
+                },
+            },
+        )
+        self.assertFalse(status["complete"])
+        self.assertFalse(status["exit_verified"])
+
+        status = plan.completion_status(
+            steps=[],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "objects": [
+                    {
+                        "objectId": "Door|1",
+                        "objectType": "Door",
+                        "visible": True,
+                    }
+                ],
+                "door_crossing": {
+                    "doorObjectId": "Door|1",
+                    "selectedDoorObjectId": "Door|1",
+                    "door_selection_verified": True,
+                    "requested_relation": "right",
+                    "relation_verified": True,
                     "crossed_threshold": True,
                 },
             },

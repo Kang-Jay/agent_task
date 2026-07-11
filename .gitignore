@@ -61,6 +61,11 @@ datasets/embodied_search_v1/trajectories/*.json
 # Local virtual environments and process state
 .venv/
 .mamba-env/
+.wsl_ai2thor_venv/
+.wsl_*_venv/
+venv/
+env/
+*.egg-info/
 *.pid
 *.nohup
 

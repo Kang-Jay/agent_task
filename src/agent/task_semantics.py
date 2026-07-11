@@ -67,7 +67,16 @@ class TaskPlan:
             and selected_exit_door_id == exit_door_id
             and exit_evidence.get("door_selection_verified") is True
         )
-        exit_verified = exit_crossed and exit_selection_verified
+        requested_exit_relation = exit_evidence.get("requested_relation")
+        exit_relation_verified = (
+            requested_exit_relation is None
+            or exit_evidence.get("relation_verified") is True
+        )
+        exit_verified = (
+            exit_crossed
+            and exit_selection_verified
+            and exit_relation_verified
+        )
         agent_state = context.get("agent") or {}
         matching_targets = [
             item

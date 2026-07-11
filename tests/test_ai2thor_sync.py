@@ -341,7 +341,10 @@ class AI2ThorStructuredThoughtTests(unittest.TestCase):
         demo = AI2ThorVisualSearchDemo(scene="FloorPlanGeneric")
         selected_door_id = "Door|selected"
         start_metadata = {
-            "agent": {"position": {"x": -0.75, "y": 0.9, "z": 1.25}},
+            "agent": {
+                "position": {"x": -0.75, "y": 0.9, "z": 1.25},
+                "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+            },
             "objects": [],
         }
         before_metadata = {
@@ -377,8 +380,49 @@ class AI2ThorStructuredThoughtTests(unittest.TestCase):
         self.assertEqual(evidence["doorObjectId"], selected_door_id)
         self.assertEqual(evidence["selectedDoorObjectId"], selected_door_id)
         self.assertTrue(evidence["door_selection_verified"])
+        self.assertEqual(evidence["requested_relation"], "right")
+        self.assertEqual(evidence["relation_to_agent"], "right")
+        self.assertTrue(evidence["relation_verified"])
         self.assertIn(evidence["axis"], {"x", "z"})
         self.assertEqual(evidence["source"], "ai2thor_agent_pose_and_door_metadata")
+
+    def test_door_crossing_context_rejects_wrong_right_relation(self) -> None:
+        demo = AI2ThorVisualSearchDemo(scene="FloorPlanGeneric")
+        selected_door_id = "Door|selected-left"
+        start_metadata = {
+            "agent": {
+                "position": {"x": 0.0, "y": 0.9, "z": 0.0},
+                "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+            },
+            "objects": [],
+        }
+        before_metadata = {
+            "agent": {"position": {"x": 0.0, "y": 0.9, "z": 0.4}},
+            "objects": [],
+        }
+        after_metadata = {
+            "agent": {"position": {"x": 0.0, "y": 0.9, "z": 0.8}},
+            "objects": [
+                {
+                    "objectId": selected_door_id,
+                    "objectType": "Door",
+                    "position": {"x": -1.0, "y": 1.23, "z": 0.6},
+                }
+            ],
+        }
+
+        evidence = demo._door_crossing_context(
+            instruction="exit through the right door",
+            start_metadata=start_metadata,
+            before_metadata=before_metadata,
+            after_metadata=after_metadata,
+            selected_door_object_id=selected_door_id,
+        )
+
+        self.assertIsNotNone(evidence)
+        self.assertEqual(evidence["doorObjectId"], selected_door_id)
+        self.assertEqual(evidence["relation_to_agent"], "left")
+        self.assertFalse(evidence["relation_verified"])
 
     def test_door_crossing_context_does_not_verify_unselected_door(self) -> None:
         demo = AI2ThorVisualSearchDemo(scene="FloorPlanGeneric")

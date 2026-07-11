@@ -125,8 +125,6 @@ def _require_ai2thor_steps(*, spec: FinalDemoSpec, steps: list[dict[str, Any]]) 
 
 def _require_real_vlm_usage(*, spec: FinalDemoSpec, steps: list[dict[str, Any]]) -> None:
     for step in steps:
-        if step.get("planner_source") != "model_planner":
-            continue
         model_info = step.get("model_info") or {}
         if not bool(model_info.get("vision_input_used")):
             continue
@@ -219,6 +217,10 @@ def _require_right_door_evidence(evidence: dict[str, Any]) -> None:
         raise RuntimeError("right_door_exit: runtime right door selection not verified")
     if evidence.get("door_selection_verified") is not True:
         raise RuntimeError("right_door_exit: runtime right door selection not verified")
+    if evidence.get("requested_relation") != "right":
+        raise RuntimeError("right_door_exit: missing right-door relation request")
+    if evidence.get("relation_verified") is not True:
+        raise RuntimeError("right_door_exit: selected door is not verified as right-side")
     if evidence.get("source") != "ai2thor_agent_pose_and_door_metadata":
         raise RuntimeError("right_door_exit: unexpected exit evidence source")
 

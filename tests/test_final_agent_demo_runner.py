@@ -72,6 +72,9 @@ def _selected_right_door_evidence(
         "crossed_threshold": True,
         "step_crossed_threshold": True,
         "requested_relation": "right",
+        "relation_to_agent": "right",
+        "relation_verified": True,
+        "relation_frame": "agent_initial_heading",
         "door_selection_verified": door_selection_verified,
         "selectedDoorObjectId": selected_door_object_id or door_object_id,
         "selection_source": "agent_selected_door",
@@ -272,6 +275,24 @@ class FinalAgentDemoRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "no successful real VLM vision call"):
                 verify_demo_summary(spec=spec, summary=summary)
 
+    def test_verify_demo_summary_accepts_model_call_preserved_after_oracle_grounding(self) -> None:
+        spec = _spec("television")
+        completion = _base_completion(spec)
+        completion["target_located"] = True
+        completion["target_visible"] = True
+        with TemporaryDirectory() as temporary_directory:
+            summary = _summary_for(
+                root=Path(temporary_directory),
+                spec=spec,
+                completion=completion,
+            )
+            summary["steps"][-1]["planner_source"] = "simulator_oracle"
+            summary["steps"][-1]["model_info"] = _real_model_info()
+
+            result = verify_demo_summary(spec=spec, summary=summary)
+
+        self.assertTrue(result["vision_input_used"])
+
     def test_verify_demo_summary_accepts_selected_right_door_evidence_without_fixed_id(self) -> None:
         spec = _spec("right_door_exit")
         completion = _base_completion(spec)
@@ -302,6 +323,25 @@ class FinalAgentDemoRunnerTests(unittest.TestCase):
                 verify_demo_summary(
                     spec=spec,
                     summary=_summary_for(root=Path(temporary_directory), spec=spec, completion=completion),
+                )
+
+    def test_verify_demo_summary_rejects_selected_door_without_right_relation(self) -> None:
+        spec = _spec("right_door_exit")
+        completion = _base_completion(spec)
+        evidence = _selected_right_door_evidence()
+        evidence["relation_to_agent"] = "left"
+        evidence["relation_verified"] = False
+        completion["exit_evidence"] = evidence
+
+        with TemporaryDirectory() as temporary_directory:
+            with self.assertRaisesRegex(RuntimeError, "right-side"):
+                verify_demo_summary(
+                    spec=spec,
+                    summary=_summary_for(
+                        root=Path(temporary_directory),
+                        spec=spec,
+                        completion=completion,
+                    ),
                 )
 
     def test_verify_demo_summary_rejects_non_ai2thor_backend(self) -> None:

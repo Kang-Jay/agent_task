@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 import sys
@@ -368,6 +369,9 @@ def run_one_demo(
 ) -> dict[str, Any]:
     session_id = f"final-agent-demos-{spec.task_id}"
     episode_id = spec.task_id
+    stale_run_dir = ROOT / "docs" / "ai2thor_outputs" / session_id / episode_id
+    if stale_run_dir.exists():
+        shutil.rmtree(stale_run_dir)
     demo = (
         demo_factory(spec)
         if demo_factory is not None

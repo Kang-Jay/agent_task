@@ -189,7 +189,14 @@ class AI2ThorVisualSearchDemo:
         emitter = StreamEventEmitter(episode_id, emit)
         run_output_dir = AI2THOR_OUTPUT_DIR / safe_session_id / episode_id
         frame_dir = run_output_dir / "frames"
-        frame_dir.mkdir(parents=True, exist_ok=False)
+        frame_dir.mkdir(parents=True, exist_ok=True)
+
+        def _save_frame(image: Image.Image, path: Path) -> None:
+            # WSL DrvFs (/mnt/*) can transiently drop directory metadata under
+            # concurrent Unity + network load, so re-assert the directory
+            # before every save instead of relying on the one-time mkdir above.
+            path.parent.mkdir(parents=True, exist_ok=True)
+            image.save(path)
 
         controller = None
         result = DemoResult(
@@ -295,7 +302,7 @@ class AI2ThorVisualSearchDemo:
                 pre_action_obs_path = (
                     frame_dir / f"ai2thor_obs_{step_id:02d}.png"
                 )
-                obs.save(pre_action_obs_path)
+                _save_frame(obs, pre_action_obs_path)
                 emitter.emit(
                     "observation_ready",
                     step_id=step_id,
@@ -533,7 +540,7 @@ class AI2ThorVisualSearchDemo:
                 post_action_obs_path = frame_dir / (
                     f"ai2thor_obs_after_{step_id:02d}.png"
                 )
-                post_action_obs.save(post_action_obs_path)
+                _save_frame(post_action_obs, post_action_obs_path)
                 post_grounded_target = (
                     self._ground_target_from_segmentation(
                         next_event,
@@ -657,7 +664,7 @@ class AI2ThorVisualSearchDemo:
                         planned_action=action_type,
                     )
                 topdown_path = frame_dir / f"ai2thor_topdown_{step_id:02d}.png"
-                topdown.save(topdown_path)
+                _save_frame(topdown, topdown_path)
                 frame = self._compose_frame(
                     post_action_obs,
                     topdown,
@@ -667,7 +674,7 @@ class AI2ThorVisualSearchDemo:
                     visible_objects,
                 )
                 frame_path = frame_dir / f"ai2thor_frame_{step_id:02d}.png"
-                frame.save(frame_path)
+                _save_frame(frame, frame_path)
                 step_record = DemoStep(
                     frame_path=str(frame_path.relative_to(ROOT)),
                     observation_path=str(
@@ -725,6 +732,7 @@ class AI2ThorVisualSearchDemo:
                     break
                 event = next_event
 
+            run_output_dir.mkdir(parents=True, exist_ok=True)
             video_path = run_output_dir / "ai2thor_visual_search_demo.mp4"
             self._write_video([ROOT / step.frame_path for step in result.steps], video_path)
             summary_path = run_output_dir / "ai2thor_demo_summary.json"

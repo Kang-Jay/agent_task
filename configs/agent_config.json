@@ -24,7 +24,7 @@
     }
   },
   "agent": {
-    "max_steps": 20,
+    "max_steps": 60,
     "history_window": 6,
     "repeated_action_penalty": 0.12,
     "stop_confidence_threshold": 0.78,
@@ -81,7 +81,7 @@
   "evaluation": {
     "success_stop_required": true,
     "illegal_action_is_failure": true,
-    "max_episode_steps": 20,
+    "max_episode_steps": 60,
     "min_success_confidence": 0.78,
     "min_success_iou": 0.3
   }

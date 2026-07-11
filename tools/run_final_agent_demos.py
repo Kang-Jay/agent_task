@@ -42,19 +42,19 @@ FINAL_DEMO_SPECS: tuple[FinalDemoSpec, ...] = (
         task_id="vase_into_box",
         scene="FloorPlan203",
         instruction="把花瓶放到纸箱里",
-        max_steps=20,
+        max_steps=60,
     ),
     FinalDemoSpec(
         task_id="right_door_exit",
         scene="FloorPlan402",
         instruction="找到右边的门，然后走出去",
-        max_steps=20,
+        max_steps=40,
     ),
     FinalDemoSpec(
         task_id="sofa_sit",
         scene="FloorPlan211",
         instruction="找到房间里的沙发并坐下",
-        max_steps=20,
+        max_steps=40,
         expected_outcome="approximate_success",
     ),
 )

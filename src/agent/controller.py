@@ -698,10 +698,7 @@ class EmbodiedSearchAgent:
         environment_context: dict | None,
         state,
     ) -> Action | None:
-        if (
-            task_plan.completion_mode != "approximate_sit"
-            or completion_status.get("approach_verified")
-        ):
+        if completion_status.get("approach_verified"):
             return None
         context = environment_context or {}
         approach = context.get("approach") or {}
@@ -717,6 +714,12 @@ class EmbodiedSearchAgent:
             not object_id
             or object_id
             not in task_plan.matching_target_object_ids(context)
+        ):
+            return None
+        if not EmbodiedSearchAgent._approach_target_matches_next_action(
+            object_id=object_id,
+            completion_status=completion_status,
+            environment_context=context,
         ):
             return None
         payload = approach.get("recommended_action")
@@ -793,6 +796,34 @@ class EmbodiedSearchAgent:
             ):
                 return None
         return action
+
+    @staticmethod
+    def _approach_target_matches_next_action(
+        *,
+        object_id: str,
+        completion_status: dict,
+        environment_context: dict,
+    ) -> bool:
+        missing_actions = list(completion_status.get("missing_actions") or [])
+        if not missing_actions:
+            return True
+        target = next(
+            (
+                item
+                for item in environment_context.get("objects", [])
+                if str(item.get("objectId") or "") == object_id
+            ),
+            None,
+        )
+        if not isinstance(target, dict):
+            return False
+        if "PickupObject" in missing_actions:
+            return bool(target.get("pickupable"))
+        if "PutObject" in missing_actions:
+            return bool(target.get("receptacle"))
+        if "OpenObject" in missing_actions:
+            return bool(target.get("openable"))
+        return True
 
     @staticmethod
     def _model_environment_context(

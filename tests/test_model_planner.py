@@ -692,6 +692,157 @@ class ModelPlannerTests(unittest.TestCase):
 
         self.assertIsNone(action)
 
+    def test_interaction_task_uses_verified_approach_to_pickup_target(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        task_plan = agent.task_semantics.analyze(
+            "把花瓶放到纸箱里",
+            mode="default",
+            legacy_actions=self.config.allowed_actions,
+        )
+        context = {
+            "objects": [
+                {
+                    "objectId": "Vase|1",
+                    "objectType": "Vase",
+                    "visible": False,
+                    "pickupable": True,
+                },
+                {
+                    "objectId": "Box|1",
+                    "objectType": "Box",
+                    "visible": True,
+                    "receptacle": True,
+                },
+            ],
+            "approach": {
+                "verified": False,
+                "objectId": "Vase|1",
+                "source": "ai2thor_interactable_pose",
+                "path_status": "PathComplete",
+                "recommended_action": {
+                    "type": "MOVE_FORWARD",
+                    "args": {"distance": 0.25},
+                },
+            },
+        }
+        state = Mock(steps=[])
+
+        action = agent._verified_approach_action(
+            task_plan=task_plan,
+            completion_status={
+                "approach_verified": False,
+                "missing_actions": ["PickupObject", "PutObject"],
+            },
+            environment_context=context,
+            state=state,
+        )
+
+        self.assertIsNotNone(action)
+        self.assertEqual(action.type, "MOVE_FORWARD")
+        self.assertEqual(action.args, {"distance": 0.25})
+
+    def test_interaction_task_does_not_approach_receptacle_before_pickup(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        task_plan = agent.task_semantics.analyze(
+            "把花瓶放到纸箱里",
+            mode="default",
+            legacy_actions=self.config.allowed_actions,
+        )
+        context = {
+            "objects": [
+                {
+                    "objectId": "Vase|1",
+                    "objectType": "Vase",
+                    "visible": False,
+                    "pickupable": True,
+                },
+                {
+                    "objectId": "Box|1",
+                    "objectType": "Box",
+                    "visible": True,
+                    "receptacle": True,
+                },
+            ],
+            "approach": {
+                "verified": False,
+                "objectId": "Box|1",
+                "source": "ai2thor_interactable_pose",
+                "path_status": "PathComplete",
+                "recommended_action": {
+                    "type": "MOVE_FORWARD",
+                    "args": {"distance": 0.25},
+                },
+            },
+        }
+
+        action = agent._verified_approach_action(
+            task_plan=task_plan,
+            completion_status={
+                "approach_verified": False,
+                "missing_actions": ["PickupObject", "PutObject"],
+            },
+            environment_context=context,
+            state=Mock(steps=[]),
+        )
+
+        self.assertIsNone(action)
+
+    def test_interaction_task_approaches_receptacle_after_pickup(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        task_plan = agent.task_semantics.analyze(
+            "把花瓶放到纸箱里",
+            mode="default",
+            legacy_actions=self.config.allowed_actions,
+        )
+        context = {
+            "objects": [
+                {
+                    "objectId": "Vase|1",
+                    "objectType": "Vase",
+                    "visible": True,
+                    "pickupable": True,
+                },
+                {
+                    "objectId": "Box|1",
+                    "objectType": "Box",
+                    "visible": True,
+                    "receptacle": True,
+                },
+            ],
+            "approach": {
+                "verified": False,
+                "objectId": "Box|1",
+                "source": "ai2thor_interactable_pose",
+                "path_status": "PathComplete",
+                "recommended_action": {
+                    "type": "TURN_RIGHT",
+                    "args": {"angle": 30.0},
+                },
+            },
+        }
+
+        action = agent._verified_approach_action(
+            task_plan=task_plan,
+            completion_status={
+                "approach_verified": False,
+                "missing_actions": ["PutObject"],
+            },
+            environment_context=context,
+            state=Mock(steps=[]),
+        )
+
+        self.assertIsNotNone(action)
+        self.assertEqual(action.type, "TURN_RIGHT")
+
     def test_model_context_removes_oracle_navigation_payload(self) -> None:
         context = {
             "objects": [{"objectId": "Sofa|1"}],

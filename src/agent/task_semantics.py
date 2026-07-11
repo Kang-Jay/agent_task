@@ -55,11 +55,19 @@ class TaskPlan:
         ]
         context = environment_context or {}
         exit_evidence = context.get("exit") or context.get("door_crossing") or {}
-        exit_verified = bool(
+        exit_crossed = bool(
             exit_evidence.get("crossed_threshold")
             or exit_evidence.get("crossed")
             or exit_evidence.get("passed")
         )
+        selected_exit_door_id = str(exit_evidence.get("selectedDoorObjectId") or "")
+        exit_door_id = str(exit_evidence.get("doorObjectId") or "")
+        exit_selection_verified = (
+            bool(selected_exit_door_id)
+            and selected_exit_door_id == exit_door_id
+            and exit_evidence.get("door_selection_verified") is True
+        )
+        exit_verified = exit_crossed and exit_selection_verified
         agent_state = context.get("agent") or {}
         matching_targets = [
             item
@@ -165,9 +173,13 @@ class TaskPlan:
             )
             complete = located and exit_verified
             reason = (
-                "doorway threshold crossing is verified by the environment"
+                "agent-selected doorway threshold crossing is verified by the environment"
                 if complete
-                else "exit task requires crossed-threshold evidence before termination"
+                else (
+                    "exit task requires the agent-selected door to be crossed before termination"
+                    if exit_crossed
+                    else "exit task requires crossed-threshold evidence before termination"
+                )
             )
             subgoal_progress = [
                 {
@@ -214,6 +226,7 @@ class TaskPlan:
             "approximate": self.completion_mode != "exact",
             "limitations": list(self.limitations),
             "target_located": target_visible or target_visible_in_environment,
+            "target_visible": target_visible,
             "target_visible_in_environment": target_visible_in_environment,
             "target_distance": target_distance,
             "approach_verified": approach_verified,
@@ -357,6 +370,8 @@ class TaskSemantics:
         if exit_requested:
             task_types.extend(("navigate_to", "exit_room"))
             limitations.append("exit_requires_crossed_threshold_verification")
+            if "OpenObject" not in required_actions:
+                required_actions.append("OpenObject")
 
         put_requested = "PutObject" in required_actions
         if put_requested:
@@ -412,6 +427,8 @@ class TaskSemantics:
         candidate_names = set(legacy_actions or [])
         candidate_names.update(self.NAVIGATION_ACTIONS)
         candidate_names.update(required_actions)
+        if exit_requested:
+            candidate_names.add("OpenObject")
         if mode == "drone":
             candidate_names.update(
                 {"FlyAhead", "FlyBack", "FlyLeft", "FlyRight", "FlyUp", "FlyDown", "FlyTo"}

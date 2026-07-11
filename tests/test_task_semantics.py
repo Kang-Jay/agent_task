@@ -210,9 +210,9 @@ class TaskSemanticsTests(unittest.TestCase):
         self.assertTrue(status["complete"])
         self.assertEqual(status["missing_actions"], [])
 
-    def test_right_door_exit_requires_crossed_threshold_evidence(self):
+    def test_right_door_exit_requires_selected_crossed_threshold_evidence(self):
         plan = self.semantics.analyze(
-            "找到右边的门，然后走出去",
+            "exit through the right door",
             mode="default",
             legacy_actions=["STOP", "ASK_CLARIFY"],
         )
@@ -252,6 +252,31 @@ class TaskSemanticsTests(unittest.TestCase):
                 ],
                 "door_crossing": {
                     "doorObjectId": "Door|1",
+                    "crossed_threshold": True,
+                },
+            },
+        )
+        self.assertFalse(status["complete"])
+        self.assertFalse(status["exit_verified"])
+        self.assertIn("agent-selected door", status["reason"])
+
+        status = plan.completion_status(
+            steps=[],
+            target_visible=True,
+            confidence=0.9,
+            stop_confidence_threshold=0.78,
+            environment_context={
+                "objects": [
+                    {
+                        "objectId": "Door|1",
+                        "objectType": "Door",
+                        "visible": True,
+                    }
+                ],
+                "door_crossing": {
+                    "doorObjectId": "Door|1",
+                    "selectedDoorObjectId": "Door|1",
+                    "door_selection_verified": True,
                     "crossed_threshold": True,
                 },
             },

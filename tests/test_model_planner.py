@@ -258,7 +258,15 @@ class ModelPlannerTests(unittest.TestCase):
                 self.assertEqual(response.planner_source, "model_planner")
                 self.assertIsNotNone(response.skill_call)
                 self.assertEqual(response.skill_call.name, "TURN_RIGHT")
-                self.assertEqual(response.thought, "Turn right to explore")
+                self.assertNotEqual(response.thought, "Turn right to explore")
+                self.assertNotEqual(
+                    response.structured_thought["reasoning"],
+                    "Turn right to explore",
+                )
+                self.assertIn(
+                    "model_summary_present=True",
+                    response.structured_thought["decision_trace"],
+                )
 
     def test_agent_accepts_task_relevant_native_ai2thor_action(self) -> None:
         agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))
@@ -281,6 +289,88 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertEqual(response.planner_source, "model_planner")
         self.assertEqual(response.action.type, "OpenObject")
         self.assertEqual(response.action.args["objectId"], "Cabinet|1")
+
+    def test_agent_replans_premature_done_for_vase_box_task(self) -> None:
+        agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))
+        mock_result = {
+            "thought_summary": "The vase and box are visible, so the task is complete.",
+            "action": {"type": "Done", "args": {}},
+            "confidence": 0.9,
+        }
+        with patch.object(agent.model_adapter, "plan_action", return_value=mock_result):
+            with patch.object(agent.model_adapter, "available", return_value=True):
+                image_path = self.config.image_dir / "ep_red_cup_visible_000.png"
+                response = agent.step(
+                    AgentRequest(
+                        session_id="test-vase-box-premature-done",
+                        instruction="把花瓶放到纸箱里",
+                        observation_image=str(image_path),
+                        step_id=0,
+                        environment_context={
+                            "agent": {"isStanding": True},
+                            "objects": [
+                                {
+                                    "objectId": "Vase|1",
+                                    "objectType": "Vase",
+                                    "visible": True,
+                                    "distance": 1.0,
+                                    "pickupable": True,
+                                },
+                                {
+                                    "objectId": "Box|1",
+                                    "objectType": "Box",
+                                    "visible": True,
+                                    "distance": 1.5,
+                                    "receptacle": True,
+                                },
+                            ],
+                        },
+                    )
+                )
+
+        self.assertEqual(response.planner_source, "rule_fallback")
+        self.assertEqual(response.fallback_reason, "premature_done_replanned")
+        self.assertEqual(response.action.type, "PickupObject")
+        self.assertFalse(response.done)
+        self.assertFalse(response.completion_status["complete"])
+
+    def test_agent_replans_premature_done_for_right_door_exit(self) -> None:
+        agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))
+        mock_result = {
+            "thought_summary": "The right door is visible, so the task is complete.",
+            "action": {"type": "Done", "args": {}},
+            "confidence": 0.9,
+        }
+        with patch.object(agent.model_adapter, "plan_action", return_value=mock_result):
+            with patch.object(agent.model_adapter, "available", return_value=True):
+                image_path = self.config.image_dir / "ep_red_cup_visible_000.png"
+                response = agent.step(
+                    AgentRequest(
+                        session_id="test-right-door-premature-done",
+                        instruction="找到右边的门，然后走出去",
+                        observation_image=str(image_path),
+                        step_id=0,
+                        environment_context={
+                            "agent": {"isStanding": True},
+                            "objects": [
+                                {
+                                    "objectId": "Door|runtime-visible|+02.00|+00.00|+03.50",
+                                    "objectType": "Door",
+                                    "visible": True,
+                                    "distance": 1.0,
+                                    "openable": True,
+                                }
+                            ],
+                        },
+                    )
+                )
+
+        self.assertEqual(response.planner_source, "rule_fallback")
+        self.assertEqual(response.fallback_reason, "premature_done_replanned")
+        self.assertEqual(response.action.type, "OpenObject")
+        self.assertEqual(response.action.args["objectType"], "Door")
+        self.assertFalse(response.done)
+        self.assertFalse(response.completion_status["complete"])
 
     def test_agent_replans_premature_done_for_sit_approximation(self) -> None:
         agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))

@@ -78,6 +78,15 @@ class SimulatorStatus:
         }
 
 
+@dataclass(frozen=True)
+class DoorThresholdGeometry:
+    source: str
+    center: tuple[float, float]
+    tangent: tuple[float, float]
+    normal: tuple[float, float]
+    half_length: float | None
+
+
 class AI2ThorVisualSearchDemo:
     """Runs the embodied visual-search loop in AI2-THOR when the runtime is available."""
 
@@ -163,6 +172,7 @@ class AI2ThorVisualSearchDemo:
         clicked_object_id: str | None = None,
         session_id: str = "ai2thor-demo",
         episode_id: str | None = None,
+        initial_pose: dict[str, Any] | None = None,
         emit: Callable[[dict[str, Any]], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> DemoResult:
@@ -225,6 +235,9 @@ class AI2ThorVisualSearchDemo:
                 renderInstanceSegmentation=True,
             )
             event = controller.last_event
+            if initial_pose:
+                event = self._teleport_initial_pose(controller, initial_pose)
+            episode_start_metadata = event.metadata
             emitter.emit(
                 "simulator_ready",
                 scene=self.scene,
@@ -527,6 +540,23 @@ class AI2ThorVisualSearchDemo:
                             ),
                         }
                     post_environment_context["approach"] = post_approach
+                if "exit_room" in task_plan.task_types:
+                    selected_door_object_id = self._selected_exit_door_object_id(
+                        response=response_dict,
+                        bound_target_object_id=bound_target_object_id,
+                        before_metadata=event.metadata,
+                        after_metadata=next_event.metadata,
+                    )
+                    door_crossing = self._door_crossing_context(
+                        instruction=instruction,
+                        start_metadata=episode_start_metadata,
+                        before_metadata=event.metadata,
+                        after_metadata=next_event.metadata,
+                        selected_door_object_id=selected_door_object_id,
+                    )
+                    if door_crossing:
+                        post_environment_context["door_crossing"] = door_crossing
+                        post_environment_context["exit"] = door_crossing
                 robot_after = self._robot_state(next_event.metadata)
                 if (
                     not agent_path
@@ -841,12 +871,15 @@ class AI2ThorVisualSearchDemo:
             f"{'The agent stops after confirmation.' if done else 'The agent inspects once before final confirmation.'}"
         )
         # Sync structured_thought when overriding action
+        preserved_trace = (response.get("structured_thought") or {}).get("decision_trace")
         response["structured_thought"] = {
             "observation": f"AI2-THOR 分割确认目标为 {target['object_type']}，位于 {target['region']}，置信度 {target['confidence']:.2f}",
             "reasoning": f"模拟器实例分割已确认目标物体。{'已完成确认，停止搜索。' if done else '需要再次检查确认。'}",
             "action": "停止" if done else "仔细检查",
             "confidence": f"{target['confidence']:.3f}"
         }
+        if preserved_trace:
+            response["structured_thought"]["decision_trace"] = preserved_trace
         response["observation"]["image_size"] = target["image_size"]
         response["observation"]["target_visible"] = True
         response["observation"]["scene_summary"] = (
@@ -890,12 +923,15 @@ class AI2ThorVisualSearchDemo:
             "LOOK_DOWN": "向下看",
             "INSPECT": "仔细检查"
         }.get(action_type, action_type)
+        preserved_trace = (response.get("structured_thought") or {}).get("decision_trace")
         response["structured_thought"] = {
             "observation": "AI2-THOR 实例分割尚未确认目标物体",
             "reasoning": f"模拟器分割未检测到目标，继续搜索。当前置信度 {response['confidence']:.2f}",
             "action": action_name_cn,
             "confidence": f"{response['confidence']:.3f}"
         }
+        if preserved_trace:
+            response["structured_thought"]["decision_trace"] = preserved_trace
         response["observation"]["target_visible"] = False
         response["observation"]["scene_summary"] = "No simulator-grounded target object is visible in the current robot view."
         response["observation"]["best_candidate"] = None
@@ -945,6 +981,575 @@ class AI2ThorVisualSearchDemo:
             "y": float(position.get("z", 0.0)),
             "heading": float(rotation.get("y", 0.0)),
         }
+
+    @staticmethod
+    def _teleport_initial_pose(controller: Any, pose: dict[str, Any]) -> Any:
+        event = controller.step(
+            action="TeleportFull",
+            position={
+                "x": float(pose["x"]),
+                "y": float(pose["y"]),
+                "z": float(pose["z"]),
+            },
+            rotation={
+                "x": 0.0,
+                "y": float(pose.get("rotation", 0.0)),
+                "z": 0.0,
+            },
+            horizon=float(pose.get("horizon", 0.0)),
+            standing=bool(pose.get("standing", True)),
+        )
+        if not event.metadata.get("lastActionSuccess"):
+            message = event.metadata.get("errorMessage") or "TeleportFull failed"
+            raise RuntimeError(f"initial pose teleport failed: {message}")
+        return event
+
+    @staticmethod
+    def _metadata_agent_position(metadata: dict[str, Any]) -> dict[str, float]:
+        agent = metadata.get("agent") or {}
+        position = agent.get("position") or {}
+        return {
+            "x": float(position.get("x", 0.0)),
+            "y": float(position.get("y", 0.0)),
+            "z": float(position.get("z", 0.0)),
+        }
+
+    @staticmethod
+    def _side_of_threshold(
+        value: float,
+        threshold: float,
+        *,
+        epsilon: float = 1e-5,
+    ) -> int:
+        delta = value - threshold
+        if delta < -epsilon:
+            return -1
+        if delta > epsilon:
+            return 1
+        return 0
+
+    @staticmethod
+    def _is_door_metadata(item: dict[str, Any]) -> bool:
+        label = " ".join(
+            str(item.get(key) or "")
+            for key in ("objectType", "objectId", "name")
+        ).lower()
+        return "door" in label
+
+    @classmethod
+    def _door_objects(cls, *metadata_items: dict[str, Any]) -> list[dict[str, Any]]:
+        by_id: dict[str, dict[str, Any]] = {}
+        anonymous: list[dict[str, Any]] = []
+        for metadata in metadata_items:
+            for item in metadata.get("objects", []):
+                if not isinstance(item, dict) or not cls._is_door_metadata(item):
+                    continue
+                object_id = str(item.get("objectId") or "")
+                if object_id:
+                    by_id[object_id] = item
+                else:
+                    anonymous.append(item)
+        return [*by_id.values(), *anonymous]
+
+    @staticmethod
+    def _xz_from_value(value: Any) -> tuple[float, float] | None:
+        if isinstance(value, dict):
+            if "x" not in value or "z" not in value:
+                return None
+            try:
+                return float(value["x"]), float(value["z"])
+            except (TypeError, ValueError):
+                return None
+        if isinstance(value, (list, tuple)):
+            if len(value) >= 3:
+                try:
+                    return float(value[0]), float(value[2])
+                except (TypeError, ValueError):
+                    return None
+            if len(value) == 2:
+                try:
+                    return float(value[0]), float(value[1])
+                except (TypeError, ValueError):
+                    return None
+        return None
+
+    @classmethod
+    def _door_center_xz(cls, door: dict[str, Any]) -> tuple[float, float] | None:
+        center = cls._xz_from_value(door.get("position"))
+        if center is not None:
+            return center
+        for key in ("objectOrientedBoundingBox", "axisAlignedBoundingBox"):
+            box = door.get(key)
+            if isinstance(box, dict):
+                center = cls._xz_from_value(box.get("center"))
+                if center is not None:
+                    return center
+        return None
+
+    @classmethod
+    def _door_bbox_xz_points(cls, door: dict[str, Any]) -> list[tuple[float, float]]:
+        points: list[tuple[float, float]] = []
+        for key in ("objectOrientedBoundingBox", "axisAlignedBoundingBox"):
+            box = door.get(key)
+            if not isinstance(box, dict):
+                continue
+            corners = box.get("cornerPoints") or box.get("corners")
+            if isinstance(corners, list):
+                for corner in corners:
+                    point = cls._xz_from_value(corner)
+                    if point is not None:
+                        points.append(point)
+            center = cls._xz_from_value(box.get("center"))
+            size = box.get("size")
+            if center is not None and isinstance(size, dict):
+                try:
+                    half_x = abs(float(size.get("x", 0.0))) / 2.0
+                    half_z = abs(float(size.get("z", 0.0))) / 2.0
+                except (TypeError, ValueError):
+                    continue
+                if half_x > 0.0 or half_z > 0.0:
+                    cx, cz = center
+                    points.extend(
+                        [
+                            (cx - half_x, cz - half_z),
+                            (cx - half_x, cz + half_z),
+                            (cx + half_x, cz - half_z),
+                            (cx + half_x, cz + half_z),
+                        ]
+                    )
+        unique: dict[tuple[int, int], tuple[float, float]] = {}
+        for x, z in points:
+            unique[(round(x, 5), round(z, 5))] = (x, z)
+        return list(unique.values())
+
+    @staticmethod
+    def _normalize_xz_vector(
+        x: float,
+        z: float,
+    ) -> tuple[float, float] | None:
+        length = math.hypot(x, z)
+        if length <= 1e-7:
+            return None
+        return x / length, z / length
+
+    @classmethod
+    def _principal_xz_axis(
+        cls,
+        points: list[tuple[float, float]],
+    ) -> tuple[tuple[float, float], float] | None:
+        if len(points) < 2:
+            return None
+        mean_x = sum(point[0] for point in points) / len(points)
+        mean_z = sum(point[1] for point in points) / len(points)
+        centered = [(x - mean_x, z - mean_z) for x, z in points]
+        var_x = sum(x * x for x, _ in centered) / len(centered)
+        var_z = sum(z * z for _, z in centered) / len(centered)
+        cov_xz = sum(x * z for x, z in centered) / len(centered)
+        if var_x + var_z <= 1e-8:
+            return None
+        angle = 0.5 * math.atan2(2.0 * cov_xz, var_x - var_z)
+        axis = cls._normalize_xz_vector(math.cos(angle), math.sin(angle))
+        if axis is None:
+            return None
+        projections = [x * axis[0] + z * axis[1] for x, z in points]
+        length = max(projections) - min(projections)
+        if length <= 1e-5:
+            return None
+        return axis, length
+
+    @staticmethod
+    def _door_rotation_y(door: dict[str, Any]) -> float | None:
+        rotation = door.get("rotation")
+        if not isinstance(rotation, dict) or "y" not in rotation:
+            return None
+        try:
+            return math.radians(float(rotation["y"]))
+        except (TypeError, ValueError):
+            return None
+
+    def _door_threshold_geometries(
+        self,
+        door: dict[str, Any],
+        *,
+        before_position: dict[str, float],
+        after_position: dict[str, float],
+    ) -> list[DoorThresholdGeometry]:
+        center = self._door_center_xz(door)
+        if center is None:
+            return []
+
+        geometries: list[DoorThresholdGeometry] = []
+        points = self._door_bbox_xz_points(door)
+        axis = self._principal_xz_axis(points)
+        if axis is not None:
+            tangent, length = axis
+            normal = (-tangent[1], tangent[0])
+            geometries.append(
+                DoorThresholdGeometry(
+                    source="ai2thor_door_bounding_box",
+                    center=center,
+                    tangent=tangent,
+                    normal=normal,
+                    half_length=max(length / 2.0, DEFAULT_GRID_SIZE_METERS),
+                )
+            )
+
+        if not geometries:
+            yaw = self._door_rotation_y(door)
+            if yaw is not None:
+                tangent = self._normalize_xz_vector(math.sin(yaw), math.cos(yaw))
+                if tangent is not None:
+                    geometries.append(
+                        DoorThresholdGeometry(
+                            source="ai2thor_door_rotation",
+                            center=center,
+                            tangent=tangent,
+                            normal=(-tangent[1], tangent[0]),
+                            half_length=None,
+                        )
+                    )
+
+        if not geometries:
+            motion = self._normalize_xz_vector(
+                after_position["x"] - before_position["x"],
+                after_position["z"] - before_position["z"],
+            )
+            if motion is not None:
+                geometries.append(
+                    DoorThresholdGeometry(
+                        source="ai2thor_door_position_and_agent_motion",
+                        center=center,
+                        tangent=(-motion[1], motion[0]),
+                        normal=motion,
+                        half_length=None,
+                    )
+                )
+        return geometries
+
+    @staticmethod
+    def _signed_threshold_distance(
+        position: dict[str, float],
+        geometry: DoorThresholdGeometry,
+    ) -> float:
+        return (
+            (position["x"] - geometry.center[0]) * geometry.normal[0]
+            + (position["z"] - geometry.center[1]) * geometry.normal[1]
+        )
+
+    @staticmethod
+    def _dominant_threshold_axis(
+        geometry: DoorThresholdGeometry,
+    ) -> tuple[str, float]:
+        if abs(geometry.normal[1]) >= abs(geometry.normal[0]):
+            return "z", geometry.center[1]
+        return "x", geometry.center[0]
+
+    @staticmethod
+    def _threshold_crossing(
+        *,
+        start: dict[str, float],
+        end: dict[str, float],
+        geometry: DoorThresholdGeometry,
+    ) -> dict[str, Any]:
+        side_epsilon = 1e-4
+        segment_tolerance = DEFAULT_GRID_SIZE_METERS * 0.75
+        unbounded_center_tolerance = DEFAULT_GRID_SIZE_METERS * 3.0
+        start_distance = AI2ThorVisualSearchDemo._signed_threshold_distance(
+            start,
+            geometry,
+        )
+        end_distance = AI2ThorVisualSearchDemo._signed_threshold_distance(
+            end,
+            geometry,
+        )
+        start_side = AI2ThorVisualSearchDemo._side_of_threshold(
+            start_distance,
+            0.0,
+            epsilon=side_epsilon,
+        )
+        end_side = AI2ThorVisualSearchDemo._side_of_threshold(
+            end_distance,
+            0.0,
+            epsilon=side_epsilon,
+        )
+        crossed_line = (
+            start_side != 0
+            and end_side != 0
+            and start_side != end_side
+        )
+
+        intersection: dict[str, float] | None = None
+        tangent_offset: float | None = None
+        center_distance: float | None = None
+        within_threshold_segment = False
+        if crossed_line:
+            denominator = start_distance - end_distance
+            if abs(denominator) > side_epsilon:
+                ratio = start_distance / denominator
+                if -side_epsilon <= ratio <= 1.0 + side_epsilon:
+                    ix = start["x"] + (end["x"] - start["x"]) * ratio
+                    iz = start["z"] + (end["z"] - start["z"]) * ratio
+                    intersection = {"x": ix, "z": iz}
+                    tangent_offset = (
+                        (ix - geometry.center[0]) * geometry.tangent[0]
+                        + (iz - geometry.center[1]) * geometry.tangent[1]
+                    )
+                    center_distance = math.hypot(
+                        ix - geometry.center[0],
+                        iz - geometry.center[1],
+                    )
+                    if geometry.half_length is None:
+                        within_threshold_segment = (
+                            center_distance <= unbounded_center_tolerance
+                        )
+                    else:
+                        within_threshold_segment = (
+                            abs(tangent_offset)
+                            <= geometry.half_length + segment_tolerance
+                        )
+
+        return {
+            "crossed": crossed_line and within_threshold_segment,
+            "line_crossed": crossed_line,
+            "within_threshold_segment": within_threshold_segment,
+            "start_side": start_side,
+            "end_side": end_side,
+            "start_signed_distance": start_distance,
+            "end_signed_distance": end_distance,
+            "intersection": intersection,
+            "tangent_offset": tangent_offset,
+            "center_distance": center_distance,
+        }
+
+    def _door_crossing_context(
+        self,
+        *,
+        instruction: str,
+        start_metadata: dict[str, Any],
+        before_metadata: dict[str, Any],
+        after_metadata: dict[str, Any],
+        selected_door_object_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        doors = self._door_objects(start_metadata, before_metadata, after_metadata)
+        if selected_door_object_id:
+            selected_door_object_id = str(selected_door_object_id)
+            doors = [
+                item
+                for item in doors
+                if str(item.get("objectId") or "") == selected_door_object_id
+            ]
+        if not doors:
+            return None
+        selected_door_object_id = str(selected_door_object_id or "")
+        before_position = self._metadata_agent_position(before_metadata)
+        after_position = self._metadata_agent_position(after_metadata)
+        start_position = self._metadata_agent_position(start_metadata)
+        normalized_instruction = instruction.lower()
+        requested_relation = (
+            "right"
+            if "right" in normalized_instruction or "右" in normalized_instruction
+            else None
+        )
+        candidates: list[dict[str, Any]] = []
+        for door in doors:
+            geometries = self._door_threshold_geometries(
+                door,
+                before_position=before_position,
+                after_position=after_position,
+            )
+            for geometry in geometries:
+                step_crossing = self._threshold_crossing(
+                    start=before_position,
+                    end=after_position,
+                    geometry=geometry,
+                )
+                episode_crossing = self._threshold_crossing(
+                    start=start_position,
+                    end=after_position,
+                    geometry=geometry,
+                )
+                axis, threshold = self._dominant_threshold_axis(geometry)
+                door_object_id = str(door.get("objectId") or "")
+                door_selection_verified = (
+                    bool(selected_door_object_id)
+                    and door_object_id == selected_door_object_id
+                )
+                threshold_distance = (
+                    abs(float(step_crossing["center_distance"]))
+                    if step_crossing["center_distance"] is not None
+                    else min(
+                        abs(float(step_crossing["start_signed_distance"])),
+                        abs(float(step_crossing["end_signed_distance"])),
+                    )
+                )
+                endpoint_a = None
+                endpoint_b = None
+                if geometry.half_length is not None:
+                    endpoint_a = {
+                        "x": geometry.center[0]
+                        - geometry.tangent[0] * geometry.half_length,
+                        "z": geometry.center[1]
+                        - geometry.tangent[1] * geometry.half_length,
+                    }
+                    endpoint_b = {
+                        "x": geometry.center[0]
+                        + geometry.tangent[0] * geometry.half_length,
+                        "z": geometry.center[1]
+                        + geometry.tangent[1] * geometry.half_length,
+                    }
+                candidates.append(
+                    {
+                        "doorObjectId": door_object_id,
+                        "doorObjectType": str(door.get("objectType") or "Door"),
+                        "axis": axis,
+                        "threshold": threshold,
+                        "threshold_geometry": {
+                            "source": geometry.source,
+                            "center": {
+                                "x": geometry.center[0],
+                                "z": geometry.center[1],
+                            },
+                            "endpoint_a": endpoint_a,
+                            "endpoint_b": endpoint_b,
+                            "normal": {
+                                "x": geometry.normal[0],
+                                "z": geometry.normal[1],
+                            },
+                            "tangent": {
+                                "x": geometry.tangent[0],
+                                "z": geometry.tangent[1],
+                            },
+                            "half_length": geometry.half_length,
+                            "finite_segment": geometry.half_length is not None,
+                        },
+                        "start_position": start_position,
+                        "before_agent_pose": before_position,
+                        "after_agent_pose": after_position,
+                        "start_side": episode_crossing["start_side"],
+                        "before_side": step_crossing["start_side"],
+                        "after_side": step_crossing["end_side"],
+                        "crossed_threshold": bool(step_crossing["crossed"]),
+                        "step_crossed_threshold": bool(step_crossing["crossed"]),
+                        "episode_crossed_threshold": bool(
+                            episode_crossing["crossed"]
+                        ),
+                        "line_crossed": bool(step_crossing["line_crossed"]),
+                        "within_threshold_segment": bool(
+                            step_crossing["within_threshold_segment"]
+                        ),
+                        "intersection": step_crossing["intersection"],
+                        "before_signed_distance": step_crossing[
+                            "start_signed_distance"
+                        ],
+                        "after_signed_distance": step_crossing[
+                            "end_signed_distance"
+                        ],
+                        "requested_relation": requested_relation,
+                        "door_selection_verified": door_selection_verified,
+                        "selectedDoorObjectId": selected_door_object_id or None,
+                        "selection_source": (
+                            "agent_selected_door"
+                            if selected_door_object_id
+                            else "unbound_candidate_door"
+                        ),
+                        "source": "ai2thor_agent_pose_and_door_metadata",
+                        "distance_from_threshold": threshold_distance,
+                    }
+                )
+        if not candidates:
+            return None
+        candidates.sort(
+            key=lambda item: (
+                not bool(item["door_selection_verified"]),
+                not bool(item["crossed_threshold"]),
+                str((item["threshold_geometry"] or {}).get("source"))
+                != "ai2thor_door_bounding_box",
+                float(item["distance_from_threshold"]),
+                str(item["doorObjectId"]),
+            )
+        )
+        selected = dict(candidates[0])
+        selected.pop("distance_from_threshold", None)
+        return selected
+
+    def _selected_exit_door_object_id(
+        self,
+        *,
+        response: dict[str, Any],
+        bound_target_object_id: str | None,
+        before_metadata: dict[str, Any],
+        after_metadata: dict[str, Any],
+    ) -> str | None:
+        door_ids = {
+            str(item.get("objectId") or "")
+            for item in self._door_objects(before_metadata, after_metadata)
+            if item.get("objectId")
+        }
+
+        def verified_door_id(
+            value: Any,
+            *,
+            explicit_door_key: bool = False,
+        ) -> str | None:
+            object_id = str(value or "").strip()
+            if not object_id:
+                return None
+            if object_id in door_ids:
+                return object_id
+            if explicit_door_key and "door" in object_id.lower():
+                return object_id
+            return None
+
+        selected = verified_door_id(bound_target_object_id)
+        if selected:
+            return selected
+
+        containers: list[dict[str, Any]] = []
+        for container in (
+            (response.get("action") or {}).get("args"),
+            (response.get("skill_call") or {}).get("args"),
+            response.get("interaction_binding") or {},
+            (response.get("interaction_binding") or {}).get("args"),
+            (response.get("interaction_binding") or {}).get("target_object"),
+            response.get("observation") or {},
+            (response.get("observation") or {}).get("best_candidate"),
+        ):
+            if isinstance(container, dict):
+                containers.append(container)
+
+        candidates = (response.get("observation") or {}).get("candidates")
+        if isinstance(candidates, list):
+            containers.extend(item for item in candidates if isinstance(item, dict))
+
+        id_keys = (
+            "doorObjectId",
+            "door_object_id",
+            "selectedDoorObjectId",
+            "selected_door_object_id",
+            "targetDoorObjectId",
+            "target_door_object_id",
+            "targetObjectId",
+            "target_object_id",
+            "objectId",
+            "object_id",
+            "clicked_object_id",
+        )
+        for container in containers:
+            type_hint = " ".join(
+                str(container.get(key) or "")
+                for key in ("label", "object_type", "objectType", "name")
+            ).lower()
+            for key in id_keys:
+                explicit_door_key = "door" in key.lower()
+                selected = verified_door_id(
+                    container.get(key),
+                    explicit_door_key=explicit_door_key,
+                )
+                if selected and (
+                    explicit_door_key or "door" in type_hint or selected in door_ids
+                ):
+                    return selected
+        return None
 
     def _initialize_map_camera(
         self,

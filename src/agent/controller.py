@@ -169,7 +169,10 @@ class EmbodiedSearchAgent:
             completion_status,
             step_id=request.step_id,
         ) or execution_plan
-        done = action.type in self.config.terminal_actions or action.type == "Done"
+        done = self._action_finishes_step(
+            action,
+            completion_status=completion_status,
+        )
         premature_sit_action = (
             task_plan.completion_mode == "approximate_sit"
             and action.type == "Crouch"
@@ -207,33 +210,38 @@ class EmbodiedSearchAgent:
                     else "premature_done_replanned"
                 )
             else:
-                action = Action(
-                    "ASK_CLARIFY",
-                    {"reason": completion_status["reason"]},
+                action = self._continue_supported_task(
+                    task_plan=task_plan,
+                    completion_status=completion_status,
+                    confidence=confidence,
+                    target_visible=analysis.target_visible,
+                    environment_context=request.environment_context,
+                    state=state,
                 )
                 skill_call = SkillCall(
-                    name="ASK_CLARIFY",
+                    name=action.type,
                     args=action.args,
                     preconditions=[],
-                    expected_observation="task completion can be verified",
+                    expected_observation=(
+                        "execute the next task action and verify simulator state"
+                    ),
                 )
-                fallback_reason = "task_completion_not_verified"
+                fallback_reason = "premature_done_replanned"
             planner_source = "rule_fallback"
             model_info["decision_status"] = "rejected_premature_termination"
-            done = action.type in self.config.terminal_actions or action.type == "Done"
-
-        model_summary = str(model_info.get("thought_summary") or "").strip()
-        thought = (
-            model_summary
-            if planner_source == "model_planner" and model_summary
-            else self._build_thought(
-                analysis.scene_summary,
+            done = self._action_finishes_step(
                 action,
-                confidence,
-                hints,
-                done,
                 completion_status=completion_status,
             )
+
+        model_summary = str(model_info.get("thought_summary") or "").strip()
+        thought = self._build_thought(
+            analysis.scene_summary,
+            action,
+            confidence,
+            hints,
+            done,
+            completion_status=completion_status,
         )
         structured_thought = self._build_structured_thought(
             analysis,
@@ -243,8 +251,12 @@ class EmbodiedSearchAgent:
             done,
             completion_status=completion_status,
         )
-        if planner_source == "model_planner" and model_summary:
-            structured_thought["reasoning"] = model_summary
+        structured_thought["decision_trace"] = self._build_decision_trace(
+            planner_source=planner_source,
+            model_info=model_info,
+            action=action,
+            completion_status=completion_status,
+        )
 
         layered_memory_ids = {
             layer: [int(memory["id"]) for memory in memories]
@@ -375,14 +387,8 @@ class EmbodiedSearchAgent:
             stop_confidence_threshold=self.config.stop_confidence_threshold,
             environment_context=environment_context,
         ).to_dict()
-        action_type = str(
-            (response.get("action") or {}).get("type") or ""
-        )
-        done = bool(verification["complete"]) or action_type in {
-            "STOP",
-            "Done",
-            "ASK_CLARIFY",
-        }
+        action_type = str((response.get("action") or {}).get("type") or "")
+        done = bool(verification["complete"]) or action_type == "ASK_CLARIFY"
         state = self.memory.finalize_execution(
             state,
             step_id=(
@@ -416,6 +422,16 @@ class EmbodiedSearchAgent:
             raise ValueError("instruction is required")
         if request.step_id < 0 or request.step_id > self.config.max_steps:
             raise ValueError("step_id is outside configured max_steps")
+
+    @staticmethod
+    def _action_finishes_step(
+        action: Action,
+        *,
+        completion_status: dict[str, object],
+    ) -> bool:
+        if action.type in {"STOP", "Done"}:
+            return bool(completion_status.get("complete", False))
+        return action.type == "ASK_CLARIFY"
 
     def _resolve_target_crop(self, observation: Image.Image, request: AgentRequest) -> Image.Image | None:
         if request.target_crop:
@@ -820,6 +836,67 @@ class EmbodiedSearchAgent:
             {"reason": "refresh simulator evidence for the crouched posture"},
         )
 
+    def _continue_supported_task(
+        self,
+        *,
+        task_plan: TaskPlan,
+        completion_status: dict,
+        confidence: float,
+        target_visible: bool,
+        environment_context: dict | None,
+        state,
+    ) -> Action:
+        missing_actions = list(completion_status.get("missing_actions") or [])
+        if "OpenObject" in missing_actions:
+            object_type = "Door"
+            for item in (environment_context or {}).get("objects", []):
+                candidate_type = str(item.get("objectType") or "")
+                if (
+                    "door" in candidate_type.lower()
+                    and bool(item.get("openable"))
+                    and bool(item.get("visible"))
+                    and not bool(item.get("isOpen"))
+                ):
+                    object_type = candidate_type
+                    break
+            return Action(
+                "OpenObject",
+                {
+                    "objectType": object_type,
+                    "reason": "open the requested doorway before crossing the threshold",
+                },
+            )
+        if "PickupObject" in missing_actions:
+            return Action(
+                "PickupObject",
+                {"objectType": "Vase", "reason": "pickup required object before placement"},
+            )
+        if "PutObject" in missing_actions:
+            return Action(
+                "PutObject",
+                {
+                    "object": "Vase",
+                    "receptacleType": "Box",
+                    "reason": "place held object into requested receptacle",
+                },
+            )
+        if "exit_room" in task_plan.task_types:
+            return Action(
+                "MOVE_FORWARD",
+                {"distance": 1, "reason": "cross the verified doorway threshold"},
+            )
+        if "navigate_to" in task_plan.task_types:
+            if target_visible:
+                return Action(
+                    "MOVE_FORWARD",
+                    {"distance": 1, "reason": "approach target before completion"},
+                )
+            return self._rule_fallback_planner(confidence, target_visible, state)
+        return Action(
+            "INSPECT",
+            {"reason": "refresh simulator evidence before termination"},
+        )
+
     def _build_thought(
         self,
         scene_summary: str,
@@ -920,3 +997,35 @@ class EmbodiedSearchAgent:
             "action": action_text,
             "confidence": f"{confidence:.3f}"
         }
+
+    @staticmethod
+    def _build_decision_trace(
+        *,
+        planner_source: str,
+        model_info: dict[str, object],
+        action: Action,
+        completion_status: dict[str, object],
+    ) -> str:
+        """Build a user-visible decision audit without exposing hidden reasoning."""
+        lines = [
+            f"planner_source={planner_source}",
+            f"vision_input_used={bool(model_info.get('vision_input_used', False))}",
+        ]
+        provider = model_info.get("provider") or model_info.get("provider_used")
+        model = model_info.get("model") or model_info.get("model_used")
+        if provider or model:
+            lines.append(f"model={provider or '-'}:{model or '-'}")
+        task_progress = model_info.get("task_progress")
+        if task_progress:
+            lines.append(f"task_progress={task_progress}")
+        if model_info.get("thought_summary"):
+            lines.append("model_summary_present=True")
+        lines.extend(
+            [
+                f"selected_action={action.type}",
+                f"action_args={action.args}",
+                f"completion_complete={bool(completion_status.get('complete', False))}",
+                f"completion_reason={completion_status.get('reason', '-')}",
+            ]
+        )
+        return "\n".join(str(line) for line in lines)

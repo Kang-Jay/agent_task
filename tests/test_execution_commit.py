@@ -227,6 +227,62 @@ class ExecutionCommitTests(unittest.TestCase):
             committed["completion_status"]["missing_actions"],
         )
 
+    def test_committed_done_action_does_not_complete_without_verifier(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        session_id = "execution-done-needs-verifier"
+        environment_context = {
+            "agent": {"isStanding": True},
+            "objects": [
+                {
+                    "objectId": "Vase|1",
+                    "objectType": "Vase",
+                    "visible": True,
+                    "pickupable": True,
+                },
+                {
+                    "objectId": "Box|1",
+                    "objectType": "Box",
+                    "visible": True,
+                    "receptacle": True,
+                },
+            ],
+        }
+        response = agent.step(
+            AgentRequest(
+                session_id=session_id,
+                instruction="把花瓶放到纸箱里",
+                observation_image=str(
+                    self.config.image_dir
+                    / "ep_red_cup_visible_000.png"
+                ),
+                step_id=0,
+                environment_context=environment_context,
+            )
+        )
+        response_dict = response.to_dict()
+        response_dict["action"] = {"type": "Done", "args": {}}
+        response_dict["done"] = True
+
+        committed = agent.commit_execution(
+            session_id,
+            response_dict,
+            step_id=0,
+            action_success=True,
+            environment_context=environment_context,
+        )
+
+        self.assertFalse(committed["done"])
+        self.assertFalse(committed["completion_status"]["complete"])
+        self.assertIn(
+            "PickupObject",
+            committed["completion_status"]["missing_actions"],
+        )
+        trace = agent.export_trace(session_id)
+        self.assertFalse(trace["steps"][0]["done"])
+
     def test_latest_step_cannot_be_committed_twice(self) -> None:
         agent = EmbodiedSearchAgent(
             self.config,

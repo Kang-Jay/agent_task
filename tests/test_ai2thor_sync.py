@@ -85,6 +85,57 @@ class AI2ThorStructuredThoughtTests(unittest.TestCase):
         self.assertIn("停止", st["action"])
         self.assertIn("0.950", st["confidence"])
 
+    def test_apply_grounded_target_preserves_decision_trace(self) -> None:
+        """Overriding the action must not wipe the user-visible decision trace."""
+        demo = AI2ThorVisualSearchDemo(scene="FloorPlan1")
+        response = {
+            "action": {"type": "TURN_RIGHT", "args": {}},
+            "confidence": 0.5,
+            "done": False,
+            "thought": "Original thought",
+            "structured_thought": {
+                "observation": "Original",
+                "reasoning": "Original",
+                "action": "向右转",
+                "confidence": "0.500",
+                "decision_trace": "planner_source=model_planner\nselected_action=TURN_RIGHT",
+            },
+            "observation": {"image_size": [448, 448], "scene_summary": ""},
+        }
+        target = {
+            "object_type": "Television", "region": "middle center", "confidence": 0.95,
+            "label": "television", "bbox": [100, 100, 200, 200], "color_name": "black",
+            "reason": "segmentation", "image_size": [448, 448],
+        }
+        demo._apply_grounded_target(response, target, "STOP", 2)
+        self.assertEqual(
+            response["structured_thought"]["decision_trace"],
+            "planner_source=model_planner\nselected_action=TURN_RIGHT",
+        )
+
+    def test_apply_search_response_preserves_decision_trace(self) -> None:
+        """Forced search override must not wipe the user-visible decision trace."""
+        demo = AI2ThorVisualSearchDemo(scene="FloorPlan1")
+        response = {
+            "action": {"type": "STOP", "args": {}},
+            "confidence": 0.4,
+            "done": True,
+            "thought": "Original",
+            "structured_thought": {
+                "observation": "Original",
+                "reasoning": "Original",
+                "action": "停止",
+                "confidence": "0.400",
+                "decision_trace": "planner_source=model_planner\nselected_action=STOP",
+            },
+            "observation": {"scene_summary": "", "target_visible": True, "best_candidate": {}, "candidates": []},
+        }
+        demo._apply_search_response(response, "TURN_LEFT")
+        self.assertEqual(
+            response["structured_thought"]["decision_trace"],
+            "planner_source=model_planner\nselected_action=STOP",
+        )
+
     def test_apply_search_response_updates_structured_thought(self) -> None:
         """Test _apply_search_response() syncs structured_thought."""
         demo = AI2ThorVisualSearchDemo(scene="FloorPlan1")
@@ -285,6 +336,88 @@ class AI2ThorStructuredThoughtTests(unittest.TestCase):
 
         self.assertNotIn((226, 60, 46), colors)
         self.assertNotIn((244, 142, 38), colors)
+
+    def test_door_crossing_context_records_selected_door_evidence(self) -> None:
+        demo = AI2ThorVisualSearchDemo(scene="FloorPlanGeneric")
+        selected_door_id = "Door|selected"
+        start_metadata = {
+            "agent": {"position": {"x": -0.75, "y": 0.9, "z": 1.25}},
+            "objects": [],
+        }
+        before_metadata = {
+            "agent": {"position": {"x": -0.75, "y": 0.9, "z": 1.45}},
+            "objects": [],
+        }
+        after_metadata = {
+            "agent": {"position": {"x": -0.75, "y": 0.9, "z": 1.80}},
+            "objects": [
+                {
+                    "objectId": selected_door_id,
+                    "objectType": "Door",
+                    "position": {"x": -0.28, "y": 1.23, "z": 1.73},
+                },
+                {
+                    "objectId": "Door|other",
+                    "objectType": "Door",
+                    "position": {"x": 2.0, "y": 1.23, "z": 1.73},
+                },
+            ],
+        }
+
+        evidence = demo._door_crossing_context(
+            instruction="exit through the right door",
+            start_metadata=start_metadata,
+            before_metadata=before_metadata,
+            after_metadata=after_metadata,
+            selected_door_object_id=selected_door_id,
+        )
+
+        self.assertIsNotNone(evidence)
+        self.assertTrue(evidence["crossed_threshold"])
+        self.assertEqual(evidence["doorObjectId"], selected_door_id)
+        self.assertEqual(evidence["selectedDoorObjectId"], selected_door_id)
+        self.assertTrue(evidence["door_selection_verified"])
+        self.assertIn(evidence["axis"], {"x", "z"})
+        self.assertEqual(evidence["source"], "ai2thor_agent_pose_and_door_metadata")
+
+    def test_door_crossing_context_does_not_verify_unselected_door(self) -> None:
+        demo = AI2ThorVisualSearchDemo(scene="FloorPlanGeneric")
+        start_metadata = {
+            "agent": {"position": {"x": 0.0, "y": 0.9, "z": 0.0}},
+            "objects": [],
+        }
+        before_metadata = {
+            "agent": {"position": {"x": 0.0, "y": 0.9, "z": 0.4}},
+            "objects": [],
+        }
+        after_metadata = {
+            "agent": {"position": {"x": 0.0, "y": 0.9, "z": 0.8}},
+            "objects": [
+                {
+                    "objectId": "Door|crossed",
+                    "objectType": "Door",
+                    "position": {"x": 0.0, "y": 1.23, "z": 0.6},
+                },
+                {
+                    "objectId": "Door|selected",
+                    "objectType": "Door",
+                    "position": {"x": 3.0, "y": 1.23, "z": 3.0},
+                },
+            ],
+        }
+
+        evidence = demo._door_crossing_context(
+            instruction="exit through the selected door",
+            start_metadata=start_metadata,
+            before_metadata=before_metadata,
+            after_metadata=after_metadata,
+            selected_door_object_id="Door|selected",
+        )
+
+        self.assertIsNotNone(evidence)
+        self.assertEqual(evidence["doorObjectId"], "Door|selected")
+        self.assertTrue(evidence["door_selection_verified"])
+        self.assertFalse(evidence["crossed_threshold"])
 
 
 if __name__ == "__main__":

@@ -4,22 +4,27 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>具身视觉搜索智能体控制台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #080b10;
-      --surface: #101620;
-      --surface-2: #151e2b;
-      --surface-3: #0b111a;
-      --line: #2b394b;
-      --line-strong: #3b5069;
-      --text: #edf4fc;
-      --muted: #91a3b8;
-      --cyan: #36d6c7;
+      --bg: #060010;
+      --surface: #0d0221;
+      --surface-2: #14063a;
+      --surface-3: #0a0118;
+      --line: rgba(0, 240, 255, 0.22);
+      --line-strong: rgba(0, 240, 255, 0.5);
+      --text: #e6ecf5;
+      --muted: #8a93b8;
+      --cyan: #00f0ff;
       --blue: #61a8ff;
-      --green: #62d99f;
-      --amber: #f2bd5b;
-      --red: #ff716c;
-      --violet: #aa8cff;
+      --green: #4dffb0;
+      --amber: #f9f871;
+      --red: #ff2a6d;
+      --violet: #b537f2;
+      --font-display: "Orbitron", "Microsoft YaHei", sans-serif;
+      --font-ui: "Rajdhani", "Microsoft YaHei", "PingFang SC", Inter, Arial, sans-serif;
     }
     * { box-sizing: border-box; }
     body {
@@ -27,38 +32,79 @@
       min-height: 100vh;
       background: var(--bg);
       color: var(--text);
-      font: 14px/1.5 "Microsoft YaHei", "PingFang SC", Inter, Arial, sans-serif;
+      font: 14px/1.5 var(--font-ui);
+      position: relative;
     }
+    /* neon grid backdrop */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        linear-gradient(rgba(0, 240, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 240, 255, 0.035) 1px, transparent 1px);
+      background-size: 46px 46px;
+      pointer-events: none;
+      z-index: 0;
+    }
+    /* CRT scanlines */
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg, transparent, transparent 3px, rgba(0, 0, 0, 0.10) 3px, rgba(0, 0, 0, 0.10) 4px
+      );
+      pointer-events: none;
+      z-index: 999;
+    }
+    body > * { position: relative; z-index: 1; }
     button, input, select, textarea { font: inherit; }
     header {
       height: 66px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 18px;
-      border-bottom: 1px solid var(--line);
-      background: #0b111a;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--line-strong);
+      background: rgba(6, 0, 16, 0.94);
+      box-shadow: 0 0 24px rgba(0, 240, 255, 0.08);
     }
     .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
     .brand-mark {
-      width: 34px;
-      height: 34px;
+      width: 36px;
+      height: 36px;
       display: grid;
       place-items: center;
       border: 1px solid var(--cyan);
-      border-radius: 7px;
+      border-radius: 4px;
       color: var(--cyan);
+      font-family: var(--font-display);
       font-weight: 900;
+      text-shadow: 0 0 10px var(--cyan);
+      box-shadow: 0 0 16px rgba(0, 240, 255, 0.35), inset 0 0 12px rgba(0, 240, 255, 0.15);
     }
-    h1 { margin: 0; font-size: 18px; letter-spacing: 0; }
-    .subtitle { color: var(--muted); font-size: 12px; }
+    h1 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: #fff;
+      text-shadow: 0 0 14px rgba(0, 240, 255, 0.45);
+    }
+    .subtitle { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; }
     .runtime-badge {
-      padding: 6px 9px;
+      padding: 6px 11px;
       border: 1px solid var(--line-strong);
-      border-radius: 6px;
-      color: var(--muted);
+      border-radius: 4px;
+      color: var(--cyan);
+      font-family: "Courier New", monospace;
       font-size: 12px;
+      letter-spacing: 0.08em;
       white-space: nowrap;
+      text-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+      background: rgba(0, 240, 255, 0.05);
     }
     .shell {
       display: grid;
@@ -69,19 +115,20 @@
     aside {
       padding: 14px;
       border-right: 1px solid var(--line);
-      background: #0d131c;
+      background: rgba(13, 2, 33, 0.72);
       overflow-y: auto;
     }
     .workspace {
       display: grid;
-      grid-template-rows: minmax(440px, 1fr) 250px;
-      background: #05080d;
+      grid-template-rows: 1fr 250px;
+      background: #04000c;
       min-height: calc(100vh - 66px);
+      overflow: hidden;
     }
     .inspector {
       padding: 14px;
       border-left: 1px solid var(--line);
-      background: #0d131c;
+      background: rgba(13, 2, 33, 0.72);
       overflow-y: auto;
     }
     .section {
@@ -95,24 +142,30 @@
       justify-content: space-between;
       margin-bottom: 10px;
       color: var(--cyan);
-      font-size: 12px;
-      font-weight: 800;
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
+      text-shadow: 0 0 10px rgba(0, 240, 255, 0.35);
     }
     label {
       display: block;
       margin: 10px 0 5px;
       color: var(--muted);
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
     }
     input, select, textarea {
       width: 100%;
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: 4px;
       padding: 9px 10px;
       background: var(--surface-3);
       color: var(--text);
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
     textarea { min-height: 74px; resize: vertical; }
     textarea.code {
@@ -122,44 +175,67 @@
     input:focus, select:focus, textarea:focus {
       outline: none;
       border-color: var(--cyan);
+      box-shadow: 0 0 0 1px var(--cyan), 0 0 14px rgba(0, 240, 255, 0.25);
     }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
     button {
       min-height: 36px;
-      border: 1px solid transparent;
-      border-radius: 6px;
-      padding: 8px 11px;
-      background: var(--cyan);
-      color: #041311;
-      font-weight: 800;
+      border: 1px solid var(--cyan);
+      border-radius: 0;
+      padding: 8px 14px;
+      background: transparent;
+      color: var(--cyan);
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
       cursor: pointer;
+      clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+      transition: background 0.2s, color 0.2s, box-shadow 0.2s;
     }
-    button:hover { filter: brightness(1.08); }
+    button:hover {
+      background: var(--cyan);
+      color: var(--bg);
+      box-shadow: 0 0 20px rgba(0, 240, 255, 0.6);
+    }
     button.secondary {
       border-color: var(--line-strong);
-      background: var(--surface-2);
       color: var(--text);
     }
-    button.danger {
-      border-color: #743b3b;
-      background: #351b1c;
-      color: #ffb1ad;
+    button.secondary:hover {
+      background: var(--violet);
+      border-color: var(--violet);
+      color: #fff;
+      box-shadow: 0 0 20px rgba(181, 55, 242, 0.6);
     }
-    button:disabled { opacity: .45; cursor: not-allowed; }
+    button.danger {
+      border-color: var(--red);
+      color: var(--red);
+    }
+    button.danger:hover {
+      background: var(--red);
+      color: #fff;
+      box-shadow: 0 0 20px rgba(255, 42, 109, 0.6);
+    }
+    button:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+    button:disabled:hover { background: transparent; color: var(--cyan); }
+    button.secondary:disabled:hover { color: var(--text); }
+    button.danger:disabled:hover { color: var(--red); }
     .status {
       min-height: 58px;
       padding: 10px;
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: 4px;
       background: var(--surface-3);
       color: var(--muted);
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
-    .status.ok { border-color: #2d6a50; color: var(--green); }
-    .status.error { border-color: #733e42; color: #ffaaa5; }
-    .status.busy { border-color: #735d2c; color: var(--amber); }
+    .status.ok { border-color: rgba(77, 255, 176, 0.5); color: var(--green); box-shadow: inset 0 0 16px rgba(77, 255, 176, 0.08); }
+    .status.error { border-color: rgba(255, 42, 109, 0.5); color: #ff8fb0; box-shadow: inset 0 0 16px rgba(255, 42, 109, 0.08); }
+    .status.busy { border-color: rgba(249, 248, 113, 0.5); color: var(--amber); box-shadow: inset 0 0 16px rgba(249, 248, 113, 0.08); }
     .run-progress {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -178,11 +254,12 @@
       width: 0;
       height: 100%;
       background: var(--cyan);
+      box-shadow: 0 0 12px var(--cyan);
       transition: width .18s ease, background-color .18s ease;
     }
-    .run-progress-bar.success { background: var(--green); }
+    .run-progress-bar.success { background: var(--green); box-shadow: 0 0 12px var(--green); }
     .run-progress-bar.failure,
-    .run-progress-bar.cancelled { background: var(--red); }
+    .run-progress-bar.cancelled { background: var(--red); box-shadow: 0 0 12px var(--red); }
     .run-progress-label {
       min-width: 102px;
       color: var(--muted);
@@ -201,12 +278,16 @@
       grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
       gap: 1px;
       background: var(--line);
-      min-height: 440px;
+      min-height: 0;
+      height: 100%;
+      overflow: hidden;
     }
     .view, .map-view {
       position: relative;
       overflow: hidden;
       background: #020305;
+      min-height: 0;
+      min-width: 0;
     }
     .view img {
       width: 100%;
@@ -225,12 +306,16 @@
       position: absolute;
       left: 12px;
       top: 12px;
-      padding: 5px 8px;
-      border: 1px solid rgba(255,255,255,.16);
-      border-radius: 5px;
-      background: rgba(5, 8, 13, .78);
-      color: #dce8f7;
+      padding: 5px 9px;
+      border: 1px solid var(--line-strong);
+      border-radius: 4px;
+      background: rgba(6, 0, 16, 0.82);
+      color: var(--cyan);
+      font-family: "Courier New", monospace;
       font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      text-shadow: 0 0 8px rgba(0, 240, 255, 0.5);
       pointer-events: none;
     }
     .empty-view {
@@ -249,7 +334,7 @@
       border: 2px solid var(--cyan);
       border-radius: 50%;
       transform: translate(-50%, -50%);
-      box-shadow: 0 0 0 5px rgba(54,214,199,.18);
+      box-shadow: 0 0 0 5px rgba(0, 240, 255, .18), 0 0 16px var(--cyan);
       pointer-events: none;
     }
     .lower {
@@ -261,7 +346,7 @@
     .timeline-pane, .video-pane {
       padding: 12px;
       overflow: auto;
-      background: #0b111a;
+      background: rgba(10, 1, 24, 0.72);
     }
     .video-pane { border-left: 1px solid var(--line); }
     .timeline {
@@ -274,28 +359,36 @@
       min-height: 118px;
       padding: 10px;
       border: 1px solid var(--line);
-      border-radius: 7px;
+      border-radius: 0;
       background: var(--surface);
       cursor: pointer;
+      clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .step-card.active { border-color: var(--cyan); }
+    .step-card:hover { border-color: var(--line-strong); }
+    .step-card.active { border-color: var(--cyan); box-shadow: inset 0 0 18px rgba(0, 240, 255, 0.12); }
     .step-card strong { display: block; color: var(--text); margin-bottom: 6px; }
     .step-card span { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
-    video { width: 100%; height: 184px; background: #000; }
+    video { width: 100%; height: 184px; background: #000; border: 1px solid var(--line); }
     .decision-action {
       margin: 3px 0 8px;
       color: var(--cyan);
+      font-family: var(--font-display);
       font-size: 24px;
       font-weight: 900;
+      letter-spacing: 0.04em;
+      text-shadow: 0 0 18px rgba(0, 240, 255, 0.5);
       overflow-wrap: anywhere;
     }
     .confidence {
       display: inline-block;
-      padding: 4px 8px;
-      border-radius: 5px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid rgba(249, 248, 113, 0.4);
       color: var(--amber);
-      background: rgba(242,189,91,.12);
-      font-weight: 800;
+      background: rgba(249, 248, 113, .08);
+      font-weight: 700;
+      letter-spacing: 0.06em;
     }
     .metrics {
       display: grid;
@@ -305,34 +398,43 @@
     }
     .metric {
       min-width: 0;
-      padding: 8px;
+      padding: 9px 10px;
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: 4px;
       background: var(--surface-3);
       color: var(--muted);
-      font-size: 11px;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
     .metric strong {
       display: block;
-      margin-top: 3px;
-      color: var(--text);
+      margin-top: 4px;
+      color: var(--cyan);
       font-size: 13px;
+      letter-spacing: 0;
+      text-transform: none;
+      text-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
       overflow-wrap: anywhere;
     }
     .trace-block {
       margin-top: 11px;
-      padding: 10px;
+      padding: 11px 12px;
+      border: 1px solid var(--line);
       border-left: 3px solid var(--blue);
+      border-radius: 0 4px 4px 0;
       background: var(--surface-3);
     }
     .trace-block.violet { border-left-color: var(--violet); }
     .trace-block.green { border-left-color: var(--green); }
     .trace-block.red { border-left-color: var(--red); }
     .trace-label {
-      margin-bottom: 5px;
+      margin-bottom: 6px;
       color: var(--blue);
+      font-family: var(--font-display);
       font-size: 11px;
-      font-weight: 800;
+      font-weight: 700;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
     }
     .trace-block.violet .trace-label { color: var(--violet); }
@@ -343,6 +445,14 @@
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
+    /* neon scrollbars */
+    ::-webkit-scrollbar { width: 9px; height: 9px; }
+    ::-webkit-scrollbar-track { background: var(--surface-3); }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 240, 255, 0.28);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(0, 240, 255, 0.5); }
     @media (max-width: 1280px) {
       .shell { grid-template-columns: 320px minmax(480px, 1fr); }
       .inspector { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); }
@@ -507,7 +617,7 @@
         <div class="trace-label">视觉观察</div>
         <div class="trace-content" id="observation">尚无观察。</div>
       </div>
-      <div class="trace-block" id="clickedObjectPanel" style="display: none; background: #1a2332; border-left: 3px solid #4a9eff;">
+      <div class="trace-block" id="clickedObjectPanel" style="display: none; border-left-color: var(--blue);">
         <div class="trace-label">点击物体参考</div>
         <div class="trace-content">
           <div><strong>物体:</strong> <span id="clickedObjectId">-</span></div>
@@ -518,6 +628,14 @@
       <div class="trace-block violet">
         <div class="trace-label">决策摘要</div>
         <div class="trace-content" id="reasoning">尚无决策。</div>
+      </div>
+      <div class="trace-block violet" id="decisionTracePanel" style="display: none;">
+        <div class="trace-label" style="cursor: pointer; user-select: none;" onclick="toggleDecisionTrace()">
+          决策轨迹 <span id="decisionTraceToggle">▼</span>
+        </div>
+        <div class="trace-content" id="decisionTraceContent" style="display: none; max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.6;">
+          尚无决策轨迹。
+        </div>
       </div>
       <div class="trace-block green">
         <div class="trace-label">任务与完成条件</div>
@@ -550,6 +668,24 @@
     const $ = id => document.getElementById(id);
     const asset = path => path ? "/" + String(path).replaceAll("\\", "/") : "";
     const pretty = value => JSON.stringify(value ?? {}, null, 2);
+
+    function toggleDecisionTrace() {
+      const content = $("decisionTraceContent");
+      const toggle = $("decisionTraceToggle");
+      const collapsed = content.style.display === "none";
+      content.style.display = collapsed ? "block" : "none";
+      toggle.textContent = collapsed ? "▲" : "▼";
+    }
+
+    function updateDecisionTrace(trace) {
+      const panel = $("decisionTracePanel");
+      if (trace && String(trace).trim()) {
+        $("decisionTraceContent").textContent = String(trace).trim();
+        panel.style.display = "block";
+      } else {
+        panel.style.display = "none";
+      }
+    }
     const TERMINAL_STREAM_EVENTS = new Set([
       "episode_completed",
       "episode_cancelled",
@@ -709,6 +845,7 @@
         step.structured_thought?.observation || step.thought || "无观察摘要";
       $("reasoning").textContent =
         step.structured_thought?.reasoning || step.thought || "无决策摘要";
+      updateDecisionTrace(step.structured_thought?.decision_trace);
       $("memorySummary").textContent = step.memory_summary || "无会话记忆";
       $("taskPlan").textContent = [
         `任务类型: ${(step.task_plan?.task_types || []).join(", ") || "-"}`,
@@ -864,6 +1001,7 @@
           payload.model_info?.model || payload.model_info?.provider || "-";
         $("reasoning").textContent =
           payload.structured_thought?.reasoning || payload.thought || "无决策摘要";
+        updateDecisionTrace(payload.structured_thought?.decision_trace);
         renderTaskState(payload.task_plan || {}, payload.completion_status || {});
       } else if (event === "action_validated") {
         setRunStage("execution", 65, stepDetail);

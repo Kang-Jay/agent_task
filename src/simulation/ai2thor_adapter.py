@@ -39,7 +39,39 @@ from src.types.schema import AgentRequest
 from src.vision.image_io import image_to_data_url
 
 
-AI2THOR_OUTPUT_DIR = ROOT / "docs" / "ai2thor_outputs"
+def _resolve_output_dir() -> Path:
+    """Resolve the AI2-THOR demo output directory.
+
+    Defaults to ``docs/ai2thor_outputs`` under the repo. On WSL the repo often
+    lives on a Windows DrvFs mount (``/mnt/*``) whose directory metadata can be
+    dropped under heavy concurrent Unity + I/O load, silently losing freshly
+    written frames. Set ``AI2THOR_OUTPUT_DIR`` to a native ext4 path (e.g.
+    ``~/ai2thor_outputs``) to keep runs off DrvFs.
+    """
+    override = os.getenv("AI2THOR_OUTPUT_DIR")
+    if override and override.strip():
+        return Path(override).expanduser().resolve()
+    return ROOT / "docs" / "ai2thor_outputs"
+
+
+AI2THOR_OUTPUT_DIR = _resolve_output_dir()
+
+
+def _relativize(path: Path) -> str:
+    """Serialize a path for storage/web-serving.
+
+    Paths under the repo root are stored repo-relative (so the web UI can serve
+    them). When ``AI2THOR_OUTPUT_DIR`` points outside the repo (e.g. ext4 on
+    WSL), fall back to a path relative to the output dir, or absolute.
+    """
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        # Output lives outside the repo (e.g. ext4 on WSL). Return an absolute
+        # path so consumers that would otherwise join against ROOT resolve it
+        # correctly (tools.run_final_agent_demos._relative_or_absolute keeps
+        # absolute paths as-is).
+        return str(path.resolve())
 
 
 TARGET_ALIASES: dict[str, list[str]] = {
@@ -99,9 +131,14 @@ class AI2ThorVisualSearchDemo:
         scene: str = "FloorPlan211",
         agent: EmbodiedSearchAgent | None = None,
         agent_mode: str = "default",
+        strict_vlm: bool = False,
     ):
         self.config = load_config()
-        self.agent = agent or EmbodiedSearchAgent(self.config)
+        self.strict_vlm = bool(strict_vlm)
+        self.agent = agent or EmbodiedSearchAgent(
+            self.config,
+            strict_vlm=self.strict_vlm,
+        )
         self.scene = scene
         self.agent_mode = agent_mode
         self.action_catalog = AI2ThorActionCatalog()
@@ -201,7 +238,7 @@ class AI2ThorVisualSearchDemo:
         controller = None
         result = DemoResult(
             episode_id=episode_id,
-            output_dir=str(run_output_dir.relative_to(ROOT)),
+            output_dir=_relativize(run_output_dir),
         )
         self.agent.reset(session_id)
         task_plan = self.agent.task_semantics.analyze(
@@ -306,9 +343,7 @@ class AI2ThorVisualSearchDemo:
                 emitter.emit(
                     "observation_ready",
                     step_id=step_id,
-                    observation_path=str(
-                        pre_action_obs_path.relative_to(ROOT)
-                    ),
+                    observation_path=_relativize(pre_action_obs_path),
                     observation_phase="before_action",
                     purpose="model_input_audit",
                     robot=self._robot_state(event.metadata),
@@ -379,7 +414,7 @@ class AI2ThorVisualSearchDemo:
                 )
                 vlm_confirmation = self._vlm_target_confirmation(response_dict)
                 vlm_authoritative = self.config.visual_search_authority == "vlm"
-                if visual_search_task and vlm_authoritative:
+                if visual_search_task and vlm_authoritative and not self.strict_vlm:
                     # The VLM's own visual judgment is authoritative. Instance
                     # segmentation (grounded_target) is retained only as
                     # cross-validation evidence, never as the decider.
@@ -410,7 +445,7 @@ class AI2ThorVisualSearchDemo:
                         ):
                             action_type = self._search_action(step_id)
                             self._apply_search_response(response_dict, action_type)
-                elif grounded_target and visual_search_task:
+                elif grounded_target and visual_search_task and not self.strict_vlm:
                     # Legacy: simulator instance segmentation is authoritative.
                     if grounded_target["confidence"] >= self.config.stop_confidence_threshold:
                         confirmed_target_steps += 1
@@ -441,6 +476,11 @@ class AI2ThorVisualSearchDemo:
                         if response_dict.get("skill_call"):
                             response_dict["skill_call"]["args"] = binding.args
                     else:
+                        if self.strict_vlm:
+                            raise RuntimeError(
+                                "strict VLM mode rejected interaction binding for "
+                                f"{action_type}: {'; '.join(binding.errors)}"
+                            )
                         failed_action = action_type
                         action_type = self._search_action(step_id)
                         reason = "; ".join(binding.errors)
@@ -471,6 +511,19 @@ class AI2ThorVisualSearchDemo:
                         }
                 response_dict["interaction_binding"] = interaction_binding
                 done = action_type in {"STOP", "Done", "ASK_CLARIFY"}
+                if (
+                    self.strict_vlm
+                    and done
+                    and action_type in {"STOP", "Done"}
+                    and not bool(
+                        (response_dict.get("completion_status") or {}).get(
+                            "complete"
+                        )
+                    )
+                ):
+                    raise RuntimeError(
+                        "strict VLM mode received a terminal action before verifier completion"
+                    )
                 response_dict["done"] = done
                 action_args = {
                     key: value
@@ -676,11 +729,9 @@ class AI2ThorVisualSearchDemo:
                 frame_path = frame_dir / f"ai2thor_frame_{step_id:02d}.png"
                 _save_frame(frame, frame_path)
                 step_record = DemoStep(
-                    frame_path=str(frame_path.relative_to(ROOT)),
-                    observation_path=str(
-                        post_action_obs_path.relative_to(ROOT)
-                    ),
-                    topdown_path=str(topdown_path.relative_to(ROOT)),
+                    frame_path=_relativize(frame_path),
+                    observation_path=_relativize(post_action_obs_path),
+                    topdown_path=_relativize(topdown_path),
                     thought=response_dict["thought"],
                     action=action_type,
                     confidence=response_dict["confidence"],
@@ -713,9 +764,7 @@ class AI2ThorVisualSearchDemo:
                     step_id=step_id,
                     robot_before=robot_before,
                     robot_after=robot_after,
-                    observation_path=str(
-                        post_action_obs_path.relative_to(ROOT)
-                    ),
+                    observation_path=_relativize(post_action_obs_path),
                     observation_phase="after_action",
                     visible_objects=visible_objects[:20],
                     action_success=action_success,
@@ -733,11 +782,18 @@ class AI2ThorVisualSearchDemo:
                 event = next_event
 
             run_output_dir.mkdir(parents=True, exist_ok=True)
+            frame_dir.mkdir(parents=True, exist_ok=True)
             video_path = run_output_dir / "ai2thor_visual_search_demo.mp4"
-            self._write_video([ROOT / step.frame_path for step in result.steps], video_path)
+            # Rebuild frame paths from frame_dir (authoritative on-disk location)
+            # rather than the serialized, possibly-relativized step paths.
+            video_frames = [
+                frame_dir / f"ai2thor_frame_{index:02d}.png"
+                for index in range(len(result.steps))
+            ]
+            self._write_video(video_frames, video_path)
             summary_path = run_output_dir / "ai2thor_demo_summary.json"
-            result.video_path = str(video_path.relative_to(ROOT))
-            result.summary_path = str(summary_path.relative_to(ROOT))
+            result.video_path = _relativize(video_path)
+            result.summary_path = _relativize(summary_path)
             summary_path.write_text(json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
             emitter.emit("episode_completed", result=result.to_dict())
             return result

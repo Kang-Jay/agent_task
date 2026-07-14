@@ -275,7 +275,7 @@ class FinalAgentDemoRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "no successful real VLM vision call"):
                 verify_demo_summary(spec=spec, summary=summary)
 
-    def test_verify_demo_summary_accepts_model_call_preserved_after_oracle_grounding(self) -> None:
+    def test_verify_demo_summary_rejects_oracle_grounding_in_strict_run(self) -> None:
         spec = _spec("television")
         completion = _base_completion(spec)
         completion["target_located"] = True
@@ -289,9 +289,12 @@ class FinalAgentDemoRunnerTests(unittest.TestCase):
             summary["steps"][-1]["planner_source"] = "simulator_oracle"
             summary["steps"][-1]["model_info"] = _real_model_info()
 
-            result = verify_demo_summary(spec=spec, summary=summary)
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "forbidden planner_source=simulator_oracle",
+            ):
+                verify_demo_summary(spec=spec, summary=summary)
 
-        self.assertTrue(result["vision_input_used"])
 
     def test_verify_demo_summary_accepts_selected_right_door_evidence_without_fixed_id(self) -> None:
         spec = _spec("right_door_exit")

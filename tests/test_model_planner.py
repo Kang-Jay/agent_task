@@ -10,10 +10,13 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 
+from PIL import Image
+
 from src.agent.controller import EmbodiedSearchAgent
 from src.agent.model_adapter import ApiCredential, ModelAdapter
 from src.types.schema import AgentRequest, Action, SkillCall
 from src.task.config import AgentConfig, load_config
+from src.vision.image_io import load_image_from_any
 
 
 class ModelPlannerTests(unittest.TestCase):
@@ -48,6 +51,18 @@ class ModelPlannerTests(unittest.TestCase):
         # Should return error when no credentials
         self.assertIn("error", result)
         self.assertIn("no_credentials", result.get("error", ""))
+
+    def test_vlm_observation_uses_configured_image_size(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+        )
+        encoded = agent._model_observation_data_url(
+            Image.new("RGB", (960, 540), color=(20, 30, 40))
+        )
+        decoded = load_image_from_any(encoded)
+
+        self.assertEqual(decoded.size, self.config.image_size)
 
     def test_model_adapter_sends_robot_rgb_and_target_crop_to_vision_model(self) -> None:
         adapter = ModelAdapter(
@@ -153,6 +168,173 @@ class ModelPlannerTests(unittest.TestCase):
         self.assertEqual(request["max_tokens"], 2048)
         self.assertEqual(result["provider_used"], "kimi")
         self.assertTrue(result["vision_input_used"])
+
+    def test_strict_vlm_kimi_uses_one_extended_attempt(self) -> None:
+        adapter = ModelAdapter(
+            credentials=[
+                ApiCredential(
+                    provider="kimi",
+                    api_key="sk-test",
+                    base_url="https://api.moonshot.cn/v1",
+                    model="kimi-k2.6",
+                )
+            ]
+        )
+        client = Mock()
+        completion = Mock()
+        completion.choices = [
+            Mock(
+                message=Mock(
+                    content=(
+                        '{"thought_summary":"inspect","action":{"type":"INSPECT",'
+                        '"args":{}},"confidence":0.6}'
+                    )
+                )
+            )
+        ]
+        client.chat.completions.create.return_value = completion
+        openai_constructor = Mock(return_value=client)
+
+        with patch("src.agent.model_adapter.OpenAI", openai_constructor):
+            result = adapter.plan_action(
+                {
+                    "instruction": "Find the television",
+                    "observation_summary": "Room view",
+                    "confidence": 0.2,
+                    "allowed_actions": ["INSPECT", "TURN_RIGHT"],
+                    "terminal_actions": [],
+                    "current_step": 0,
+                    "max_steps": 20,
+                    "observation_image": "data:image/png;base64,robot-rgb",
+                    "require_vision": True,
+                    "strict_vlm": True,
+                }
+            )
+
+        self.assertEqual(openai_constructor.call_args.kwargs["timeout"], 180.0)
+        self.assertEqual(openai_constructor.call_args.kwargs["max_retries"], 0)
+        self.assertEqual(
+            client.chat.completions.create.call_args.kwargs["max_tokens"],
+            4096,
+        )
+        self.assertEqual(result["provider_used"], "kimi")
+        self.assertTrue(result["vision_input_used"])
+
+    def test_strict_vlm_repairs_empty_json_with_second_model_call(self) -> None:
+        adapter = ModelAdapter(
+            credentials=[
+                ApiCredential(
+                    provider="kimi",
+                    api_key="sk-test",
+                    base_url="https://api.moonshot.cn/v1",
+                    model="kimi-k2.6",
+                )
+            ]
+        )
+        client = Mock()
+        empty_completion = Mock()
+        empty_completion.choices = [Mock(message=Mock(content="{}"))]
+        repaired_completion = Mock()
+        repaired_completion.choices = [
+            Mock(
+                message=Mock(
+                    content=(
+                        '{"thought_summary":"turn right","task_progress":"searching",'
+                        '"action":{"type":"TURN_RIGHT","args":{}},'
+                        '"confidence":0.5,"target_visible":false,'
+                        '"target_confidence":0.0}'
+                    )
+                )
+            )
+        ]
+        client.chat.completions.create.side_effect = [
+            empty_completion,
+            repaired_completion,
+        ]
+
+        with patch("src.agent.model_adapter.OpenAI", return_value=client):
+            result = adapter.plan_action(
+                {
+                    "instruction": "Find the television",
+                    "observation_summary": "Room view",
+                    "confidence": 0.2,
+                    "allowed_actions": ["TURN_RIGHT", "STOP"],
+                    "action_specs": [],
+                    "terminal_actions": ["STOP"],
+                    "task_plan": {},
+                    "execution_plan": {},
+                    "environment_context": {},
+                    "completion_status": {"complete": False},
+                    "current_step": 0,
+                    "max_steps": 12,
+                    "observation_image": "data:image/png;base64,robot-rgb",
+                    "require_vision": True,
+                    "strict_vlm": True,
+                }
+            )
+
+        self.assertEqual(client.chat.completions.create.call_count, 2)
+        self.assertEqual(result["action"]["type"], "TURN_RIGHT")
+        self.assertTrue(result["validation_repaired"])
+        repair_content = client.chat.completions.create.call_args_list[1].kwargs[
+            "messages"
+        ][1]["content"]
+        self.assertIn("previous response was empty", repair_content[0]["text"])
+
+    def test_model_adapter_parses_markdown_fenced_json_response(self) -> None:
+        adapter = ModelAdapter(
+            credentials=[
+                ApiCredential(
+                    provider="kimi",
+                    api_key="sk-test",
+                    base_url="https://api.moonshot.cn/v1",
+                    model="kimi-k2.6",
+                )
+            ]
+        )
+        client = Mock()
+        completion = Mock()
+        completion.choices = [
+            Mock(
+                message=Mock(
+                    content=(
+                        "```json\n"
+                        "{\n"
+                        '  "thought_summary": "turn right",\n'
+                        '  "task_progress": "target not visible",\n'
+                        '  "action": {"type": "TURN_RIGHT", "args": {"angle": 30}},\n'
+                        '  "confidence": 0.57,\n'
+                        '  "target_visible": false,\n'
+                        '  "target_confidence": 0.0\n'
+                        "}\n"
+                        "```"
+                    )
+                )
+            )
+        ]
+        client.chat.completions.create.return_value = completion
+
+        with patch("src.agent.model_adapter.OpenAI", return_value=client):
+            result = adapter.plan_action(
+                {
+                    "instruction": "Find the television",
+                    "observation_summary": "No target visible",
+                    "confidence": 0.1,
+                    "allowed_actions": ["TURN_RIGHT", "INSPECT"],
+                    "terminal_actions": [],
+                    "current_step": 0,
+                    "max_steps": 20,
+                    "observation_image": "data:image/png;base64,robot-rgb",
+                    "require_vision": True,
+                }
+            )
+
+        self.assertNotIn("error", result)
+        self.assertEqual(result["action"]["type"], "TURN_RIGHT")
+        self.assertEqual(result["action"]["args"]["angle"], 30)
+        self.assertEqual(result["provider_used"], "kimi")
+        self.assertTrue(result["vision_input_used"])
+        self.assertFalse(result["target_visible"])
 
     def test_deepseek_text_planner_does_not_claim_vision_input(self) -> None:
         adapter = ModelAdapter(
@@ -268,6 +450,27 @@ class ModelPlannerTests(unittest.TestCase):
                     response.structured_thought["decision_trace"],
                 )
 
+    def test_strict_vlm_agent_rejects_missing_model_instead_of_falling_back(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+            strict_vlm=True,
+        )
+        image_path = self.config.image_dir / "ep_red_cup_visible_000.png"
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "strict VLM mode requires a multimodal task plan",
+        ):
+            agent.step(
+                AgentRequest(
+                    session_id="test-strict-vlm-no-model",
+                    instruction="Find the red cup",
+                    observation_image=str(image_path),
+                    step_id=0,
+                )
+            )
+
     def test_agent_accepts_task_relevant_native_ai2thor_action(self) -> None:
         agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))
         mock_result = {
@@ -292,12 +495,33 @@ class ModelPlannerTests(unittest.TestCase):
 
     def test_agent_replans_premature_done_for_vase_box_task(self) -> None:
         agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))
-        mock_result = {
+        premature_done_result = {
             "thought_summary": "The vase and box are visible, so the task is complete.",
             "action": {"type": "Done", "args": {}},
             "confidence": 0.9,
         }
-        with patch.object(agent.model_adapter, "plan_action", return_value=mock_result):
+        vlm_replan_result = {
+            "thought_summary": "The verifier says the vase has not been picked up yet, so pickup is the next action.",
+            "task_progress": "Vase and box are visible; PickupObject is still missing.",
+            "action": {
+                "type": "PickupObject",
+                "args": {
+                    "objectType": "Vase",
+                    "objectId": "Vase|1",
+                },
+            },
+            "confidence": 0.86,
+            "target_visible": True,
+            "target_confidence": 0.86,
+            "provider_used": "kimi",
+            "model_used": "kimi-k2.6",
+            "vision_input_used": True,
+        }
+        with patch.object(
+            agent.model_adapter,
+            "plan_action",
+            side_effect=[premature_done_result, vlm_replan_result],
+        ) as plan_action:
             with patch.object(agent.model_adapter, "available", return_value=True):
                 image_path = self.config.image_dir / "ep_red_cup_visible_000.png"
                 response = agent.step(
@@ -328,9 +552,21 @@ class ModelPlannerTests(unittest.TestCase):
                     )
                 )
 
-        self.assertEqual(response.planner_source, "rule_fallback")
-        self.assertEqual(response.fallback_reason, "premature_done_replanned")
+        self.assertEqual(plan_action.call_count, 2)
+        second_payload = plan_action.call_args_list[1].args[0]
+        self.assertEqual(
+            second_payload["completion_status"]["last_rejected_action"]["type"],
+            "Done",
+        )
+        self.assertIn("missing_actions", second_payload["completion_status"])
+        self.assertEqual(response.planner_source, "model_planner")
+        self.assertIsNone(response.fallback_reason)
         self.assertEqual(response.action.type, "PickupObject")
+        self.assertEqual(response.action.args["objectId"], "Vase|1")
+        self.assertEqual(
+            response.model_info["decision_status"],
+            "vlm_replanned_after_rejected_done",
+        )
         self.assertFalse(response.done)
         self.assertFalse(response.completion_status["complete"])
 
@@ -430,12 +666,33 @@ class ModelPlannerTests(unittest.TestCase):
 
     def test_agent_replans_premature_done_for_right_door_exit(self) -> None:
         agent = EmbodiedSearchAgent(self.config, model_adapter=ModelAdapter(credentials=[]))
-        mock_result = {
+        premature_done_result = {
             "thought_summary": "The right door is visible, so the task is complete.",
             "action": {"type": "Done", "args": {}},
             "confidence": 0.9,
         }
-        with patch.object(agent.model_adapter, "plan_action", return_value=mock_result):
+        vlm_replan_result = {
+            "thought_summary": "The verifier says the door has not been opened or crossed yet, so I should open it.",
+            "task_progress": "Right door is visible; OpenObject is still missing.",
+            "action": {
+                "type": "OpenObject",
+                "args": {
+                    "objectType": "Door",
+                    "objectId": "Door|runtime-visible|+02.00|+00.00|+03.50",
+                },
+            },
+            "confidence": 0.84,
+            "target_visible": True,
+            "target_confidence": 0.84,
+            "provider_used": "kimi",
+            "model_used": "kimi-k2.6",
+            "vision_input_used": True,
+        }
+        with patch.object(
+            agent.model_adapter,
+            "plan_action",
+            side_effect=[premature_done_result, vlm_replan_result],
+        ) as plan_action:
             with patch.object(agent.model_adapter, "available", return_value=True):
                 image_path = self.config.image_dir / "ep_red_cup_visible_000.png"
                 response = agent.step(
@@ -459,10 +716,21 @@ class ModelPlannerTests(unittest.TestCase):
                     )
                 )
 
-        self.assertEqual(response.planner_source, "rule_fallback")
-        self.assertEqual(response.fallback_reason, "premature_done_replanned")
+        self.assertEqual(plan_action.call_count, 2)
+        second_payload = plan_action.call_args_list[1].args[0]
+        self.assertEqual(
+            second_payload["completion_status"]["last_rejected_action"]["type"],
+            "Done",
+        )
+        self.assertIn("missing_actions", second_payload["completion_status"])
+        self.assertEqual(response.planner_source, "model_planner")
+        self.assertIsNone(response.fallback_reason)
         self.assertEqual(response.action.type, "OpenObject")
         self.assertEqual(response.action.args["objectType"], "Door")
+        self.assertEqual(
+            response.model_info["decision_status"],
+            "vlm_replanned_after_rejected_done",
+        )
         self.assertFalse(response.done)
         self.assertFalse(response.completion_status["complete"])
 
@@ -793,6 +1061,24 @@ class ModelPlannerTests(unittest.TestCase):
 
         with patch.object(agent.model_adapter, "available", return_value=True):
             with patch.object(agent.model_adapter, "plan_action") as plan_action:
+                plan_action.return_value = {
+                    "action": {
+                        "type": "PickupObject",
+                        "args": {
+                            "objectType": "Mug",
+                            "objectId": "Mug|1",
+                            "reason": "pick up the visible mug before placing it in the bowl",
+                        },
+                    },
+                    "confidence": 0.82,
+                    "thought_summary": "The mug is visible and reachable, so I should pick it up before placing it in the bowl.",
+                    "task_progress": "Mug is visible; pickup is the next missing action.",
+                    "target_visible": True,
+                    "target_confidence": 0.82,
+                    "provider_used": "kimi",
+                    "model_used": "kimi-k2.6",
+                    "vision_input_used": True,
+                }
                 response = agent.step(
                     AgentRequest(
                         session_id="test-approach-yield-continuation",
@@ -830,14 +1116,14 @@ class ModelPlannerTests(unittest.TestCase):
                     )
                 )
 
-        plan_action.assert_not_called()
+        plan_action.assert_called_once()
         self.assertEqual(response.action.type, "PickupObject")
         self.assertEqual(response.action.args["objectType"], "Mug")
-        self.assertEqual(
-            response.fallback_reason,
-            "verifier_guided_interaction_continuation",
-        )
+        self.assertEqual(response.planner_source, "model_planner")
+        self.assertIsNone(response.fallback_reason)
+        self.assertEqual(response.model_info["interaction_decision_owner"], "vlm_planner")
         self.assertTrue(response.model_info["prior_real_vlm_step"])
+        self.assertTrue(response.model_info["vision_input_used"])
 
     def test_interaction_continuation_waits_until_pickup_target_visible(self) -> None:
         agent = EmbodiedSearchAgent(
@@ -1381,6 +1667,61 @@ class ModelPlannerTests(unittest.TestCase):
             "recommended_action",
             context["approach"],
         )
+
+    def test_strict_vlm_context_exposes_only_visible_objects(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+            strict_vlm=True,
+        )
+        sanitized = agent._planner_environment_context(
+            {
+                "objects": [
+                    {"objectId": "Sofa|1", "visible": True},
+                    {"objectId": "Television|2", "visible": False},
+                ],
+                "inventoryObjects": [],
+            }
+        )
+
+        self.assertEqual(
+            sanitized["objects"],
+            [{"objectId": "Sofa|1", "visible": True}],
+        )
+
+    def test_strict_vlm_action_vocabulary_removes_native_alias_duplicates(self) -> None:
+        agent = EmbodiedSearchAgent(
+            self.config,
+            model_adapter=ModelAdapter(credentials=[]),
+            strict_vlm=True,
+        )
+        task_plan = agent.task_semantics.analyze(
+            "Find the television in the room",
+            mode="default",
+            legacy_actions=self.config.allowed_actions,
+        )
+        actions = agent._model_allowed_actions(task_plan)
+
+        for canonical in (
+            "MOVE_FORWARD",
+            "TURN_LEFT",
+            "TURN_RIGHT",
+            "LOOK_UP",
+            "LOOK_DOWN",
+            "INSPECT",
+            "STOP",
+        ):
+            self.assertIn(canonical, actions)
+        for alias in (
+            "MoveAhead",
+            "RotateLeft",
+            "RotateRight",
+            "LookUp",
+            "LookDown",
+            "Pass",
+            "Done",
+        ):
+            self.assertNotIn(alias, actions)
 
     def test_agent_fallback_when_model_returns_illegal_action(self) -> None:
         """Test agent falls back to rules when model returns illegal action."""

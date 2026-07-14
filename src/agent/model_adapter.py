@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,33 @@ from src.agent.model_reliability import (
 
 ROOT = Path(__file__).resolve().parents[2]
 API_KEY_PATH = ROOT / "apikey.txt"
+STRICT_VLM_THINKING_TIMEOUT_SECONDS = 180.0
+STRICT_VLM_THINKING_MAX_TOKENS = 4096
+
+
+def parse_model_json(content: str | None) -> dict[str, Any]:
+    """Parse a model's JSON response, tolerating markdown code fences.
+
+    Thinking models (e.g. kimi-k2.6) often wrap JSON in ```json ... ``` fences
+    or prepend prose, which breaks a bare ``json.loads``. Strip fences and, as a
+    last resort, extract the outermost {...} object before parsing.
+    """
+    text = (content or "").strip()
+    if not text:
+        return {}
+    # Strip a leading/trailing markdown code fence (```json ... ``` or ``` ... ```)
+    fence = re.match(r"^```[a-zA-Z0-9]*\s*(.*?)\s*```$", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Fall back to the outermost balanced-looking JSON object.
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            return json.loads(text[start : end + 1])
+        raise
 
 
 @dataclass(frozen=True)
@@ -168,6 +196,13 @@ Order all supplied subgoal ids into a complete executable global plan."""
                 "plan_task",
                 thinking_model=self._is_thinking_model(model_name),
             )
+            if payload.get("strict_vlm") and self._is_thinking_model(model_name):
+                profile = replace(
+                    profile,
+                    timeout_seconds=STRICT_VLM_THINKING_TIMEOUT_SECONDS,
+                    max_tokens=STRICT_VLM_THINKING_MAX_TOKENS,
+                    sdk_max_retries=0,
+                )
             context = ModelCallContext.start(
                 operation="plan_task",
                 provider=credential.provider,
@@ -227,7 +262,7 @@ Order all supplied subgoal ids into a complete executable global plan."""
                         else None
                     ),
                 )
-                result = json.loads(response.choices[0].message.content or "{}")
+                result = parse_model_json(response.choices[0].message.content)
                 ordered_ids = result.get("ordered_subgoal_ids")
                 if not isinstance(ordered_ids, list) or not all(
                     isinstance(item, str) and item for item in ordered_ids
@@ -350,6 +385,13 @@ Do not output hidden reasoning, only the final short summary."""
                 "plan_action",
                 thinking_model=self._is_thinking_model(model_name),
             )
+            if payload.get("strict_vlm") and self._is_thinking_model(model_name):
+                profile = replace(
+                    profile,
+                    timeout_seconds=STRICT_VLM_THINKING_TIMEOUT_SECONDS,
+                    max_tokens=STRICT_VLM_THINKING_MAX_TOKENS,
+                    sdk_max_retries=0,
+                )
             context = ModelCallContext.start(
                 operation="plan_action",
                 provider=credential.provider,
@@ -380,14 +422,64 @@ Do not output hidden reasoning, only the final short summary."""
                     response_format={"type": "json_object"} if credential.provider != "deepseek" else None,
                 )
                 content = response.choices[0].message.content or "{}"
-                result = json.loads(content)
+                result = parse_model_json(content)
+                validation_repaired = False
+
+                if (
+                    payload.get("strict_vlm")
+                    and (
+                        "action" not in result
+                        or not isinstance(result.get("action"), dict)
+                        or "type" not in result.get("action", {})
+                    )
+                ):
+                    context = ModelCallContext.start(
+                        operation="plan_action",
+                        provider=credential.provider,
+                        model=model_name,
+                        profile=profile,
+                    )
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {
+                                "role": "user",
+                                "content": self._build_strict_repair_content(
+                                    payload
+                                ),
+                            },
+                        ],
+                        temperature=profile.temperature,
+                        max_tokens=profile.max_tokens,
+                        extra_headers=request_headers(context),
+                        response_format=(
+                            {"type": "json_object"}
+                            if credential.provider != "deepseek"
+                            else None
+                        ),
+                    )
+                    content = response.choices[0].message.content or "{}"
+                    result = parse_model_json(content)
+                    validation_repaired = True
 
                 # Validate output
                 if "action" not in result or "type" not in result.get("action", {}):
+                    action_value = result.get("action")
+                    action_keys = (
+                        sorted(map(str, action_value.keys()))
+                        if isinstance(action_value, dict)
+                        else []
+                    )
                     audit = build_validation_error(
                         context,
                         response=response,
-                        message="missing action.type in response",
+                        message=(
+                            "missing action.type in response; "
+                            f"top_level_keys={sorted(map(str, result.keys()))}; "
+                            f"action_kind={type(action_value).__name__}; "
+                            f"action_keys={action_keys}"
+                        ),
                     )
                     provider_errors.append(audit)
                     errors.append(legacy_error_message(audit))
@@ -416,6 +508,7 @@ Do not output hidden reasoning, only the final short summary."""
                 result["provider_used"] = credential.provider
                 result["model_used"] = credential.model or "gpt-4o-mini"
                 result["vision_input_used"] = isinstance(user_content, list)
+                result["validation_repaired"] = validation_repaired
                 result["model_call"] = build_success_audit(context, response)
                 return result
 
@@ -514,7 +607,11 @@ Plan exactly one next action. Return JSON with thought_summary, task_progress, a
         *,
         include_images: bool,
     ) -> str | list[dict[str, Any]]:
-        prompt = self._build_planner_prompt(payload)
+        prompt = (
+            self._build_strict_planner_prompt(payload)
+            if payload.get("strict_vlm")
+            else self._build_planner_prompt(payload)
+        )
         observation_image = payload.get("observation_image")
         target_crop = payload.get("target_crop")
         if not include_images or not observation_image:
@@ -545,6 +642,100 @@ Plan exactly one next action. Return JSON with thought_summary, task_progress, a
                         "detail": "low",
                     },
                 }
+            )
+        return content
+
+    def _build_strict_planner_prompt(self, payload: dict[str, Any]) -> str:
+        completion = payload.get("completion_status") or {}
+        compact_completion = {
+            key: completion.get(key)
+            for key in (
+                "complete",
+                "missing_actions",
+                "approach_verified",
+                "last_rejected_action",
+            )
+            if key in completion
+        }
+        execution = payload.get("execution_plan") or {}
+        environment = payload.get("environment_context") or {}
+        compact_objects = [
+            {
+                key: item.get(key)
+                for key in (
+                    "objectId",
+                    "objectType",
+                    "distance",
+                    "visible",
+                    "pickupable",
+                    "receptacle",
+                    "openable",
+                    "isOpen",
+                    "toggleable",
+                    "isToggled",
+                    "isPickedUp",
+                    "parentReceptacles",
+                )
+                if key in item
+            }
+            for item in (environment.get("objects") or [])
+            if isinstance(item, dict)
+        ]
+        visible_context = {
+            "inventoryObjects": environment.get("inventoryObjects") or [],
+            "objects": compact_objects,
+        }
+        return f"""Task: {payload.get('instruction', '')}
+Observation: {payload.get('observation_summary', '')}
+Step: {payload.get('current_step', 0)}/{payload.get('max_steps', 0)}
+Allowed Actions: {', '.join(payload.get('allowed_actions') or [])}
+Current Subgoal ID: {execution.get('current_subgoal_id') or 'none'}
+Completion Check: {json.dumps(compact_completion, ensure_ascii=False)}
+Visible Objects: {json.dumps(visible_context, ensure_ascii=False)}
+Memory Summary: {payload.get('memory_summary') or 'none'}
+
+Use the image as the visual authority. Select exactly one Allowed Action.
+For object interactions, copy an exact visible objectId into action.args.objectId.
+Do not claim completion unless Completion Check says complete=true.
+Return only the required JSON object."""
+
+    def _build_strict_repair_content(
+        self,
+        payload: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        repair_prompt = (
+            "Your previous response was empty or lacked action.type. "
+            "Correct it now.\n"
+            "Return ONLY one JSON object with thought_summary, task_progress, "
+            'action={"type": ACTION_NAME, "args": {}}, confidence, '
+            "stop_reason, target_visible, target_confidence.\n\n"
+            + self._build_strict_planner_prompt(payload)
+        )
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": repair_prompt},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": payload["observation_image"],
+                    "detail": "low",
+                },
+            },
+        ]
+        if payload.get("target_crop"):
+            content.extend(
+                [
+                    {
+                        "type": "text",
+                        "text": "Target reference image:",
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": payload["target_crop"],
+                            "detail": "low",
+                        },
+                    },
+                ]
             )
         return content
 
@@ -607,7 +798,7 @@ Plan exactly one next action. Return JSON with thought_summary, task_progress, a
                     response_format={"type": "json_object"} if credential.provider != "deepseek" else None,
                 )
                 content = response.choices[0].message.content or "{}"
-                result = json.loads(content)
+                result = parse_model_json(content)
                 result["model_call"] = build_success_audit(context, response)
                 return result
             except json.JSONDecodeError as exc:

@@ -150,6 +150,7 @@ def build_validation_error(
         **_base_audit(context),
         "status": "failed",
         "provider_request_id": _provider_request_id(response),
+        "finish_reason": _finish_reason(response),
         "usage": _usage_payload(response),
         "error": {
             "kind": kind,
@@ -161,6 +162,14 @@ def build_validation_error(
             "retryable": False,
         },
     }
+
+
+def _finish_reason(response: Any) -> str | None:
+    choices = getattr(response, "choices", None) if response is not None else None
+    if not choices:
+        return None
+    value = getattr(choices[0], "finish_reason", None)
+    return str(value) if value is not None else None
 
 
 def build_skipped_provider_error(

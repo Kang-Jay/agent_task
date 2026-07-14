@@ -27,8 +27,10 @@ class EmbodiedSearchAgent:
         self,
         config: AgentConfig | None = None,
         model_adapter: ModelAdapter | None = None,
+        strict_vlm: bool = False,
     ):
         self.config = config or load_config()
+        self.strict_vlm = bool(strict_vlm)
         self.vision = HeuristicVision(self.config)
         self.memory = SessionMemory(self.config)
         self.retriever = HintRetriever(self.config)
@@ -89,7 +91,7 @@ class EmbodiedSearchAgent:
                 state=state,
             )
         )
-        guidance_yielded_for_interaction = (
+        interaction_ready_for_model = (
             approach_guidance_should_yield
             and self._interaction_continuation_ready(
                 task_plan=task_plan,
@@ -101,15 +103,15 @@ class EmbodiedSearchAgent:
             (request.environment_context or {}).get("approach") or {}
         )
         approach_action = None
-        if has_successful_real_vlm_step and not guidance_yielded_for_interaction:
+        if has_successful_real_vlm_step and not interaction_ready_for_model:
             approach_action = self._verified_approach_action(
                 task_plan=task_plan,
                 completion_status=completion_status,
                 environment_context=request.environment_context,
                 state=state,
-                allow_yield=guidance_yielded_for_interaction,
+                allow_yield=interaction_ready_for_model,
             )
-        if approach_action is not None:
+        if approach_action is not None and not self.strict_vlm:
             action = approach_action
             skill_call = SkillCall(
                 name="APPROACH_TARGET",
@@ -135,37 +137,6 @@ class EmbodiedSearchAgent:
                 "vision_input_used": False,
                 "path_status": approach_context.get("path_status"),
             }
-        elif guidance_yielded_for_interaction:
-            action = self._continue_supported_task(
-                task_plan=task_plan,
-                completion_status=completion_status,
-                confidence=vision_confidence,
-                target_visible=analysis.target_visible,
-                environment_context=request.environment_context,
-                state=state,
-            )
-            skill_call = SkillCall(
-                name=action.type,
-                args=action.args,
-                preconditions=[
-                    "a prior real VLM vision step selected the task context",
-                    "verified approach guidance yielded to the next task predicate",
-                ],
-                expected_observation=(
-                    "execute the next missing embodied predicate and verify "
-                    "AI2-THOR metadata"
-                ),
-            )
-            planner_source = "rule_fallback"
-            fallback_reason = "verifier_guided_interaction_continuation"
-            planner_confidence = None
-            model_info = {
-                "status": "verifier_guided_continuation",
-                "vision_input_used": False,
-                "prior_real_vlm_step": True,
-                "missing_actions": list(completion_status.get("missing_actions") or []),
-                "path_status": approach_context.get("path_status"),
-            }
         else:
             action, skill_call, planner_source, fallback_reason, planner_confidence, model_info = self._plan_with_model(
                 analysis,
@@ -179,6 +150,13 @@ class EmbodiedSearchAgent:
                 execution_plan,
                 completion_status,
             )
+            if interaction_ready_for_model and planner_source == "model_planner":
+                model_info["interaction_decision_owner"] = "vlm_planner"
+                model_info["prior_real_vlm_step"] = True
+                model_info["missing_actions"] = list(
+                    completion_status.get("missing_actions") or []
+                )
+                model_info["path_status"] = approach_context.get("path_status")
         confidence = (
             min(vision_confidence, planner_confidence)
             if planner_source == "model_planner" and planner_confidence is not None
@@ -187,6 +165,11 @@ class EmbodiedSearchAgent:
 
         # Validate action
         if not task_plan.supported:
+            if self.strict_vlm:
+                raise RuntimeError(
+                    "strict VLM mode rejected an unsupported task: "
+                    f"{task_plan.clarification or request.instruction}"
+                )
             action = Action(
                 "ASK_CLARIFY",
                 {"reason": task_plan.clarification or "unsupported embodied capability"},
@@ -201,6 +184,11 @@ class EmbodiedSearchAgent:
             fallback_reason = "unsupported_task_capability"
             model_info["decision_status"] = "rejected_unsupported_task"
         elif action.type not in task_plan.action_candidates:
+            if self.strict_vlm:
+                raise RuntimeError(
+                    "strict VLM mode rejected illegal action: "
+                    f"{action.type} not in {task_plan.action_candidates}"
+                )
             action = Action("ASK_CLARIFY", {"reason": f"illegal action blocked: {action.type}"})
             skill_call = SkillCall(name="ASK_CLARIFY", args={}, preconditions=[], expected_observation="request clarification")
             planner_source = "rule_fallback"
@@ -233,7 +221,8 @@ class EmbodiedSearchAgent:
             action.type in {"STOP", "Done"}
             and not completion_status["complete"]
         ) or premature_sit_action:
-            if task_plan.is_visual_search:
+            keep_model_replan_source = False
+            if task_plan.is_visual_search and not self.strict_vlm:
                 action = self._rule_fallback_planner(confidence, analysis.target_visible, state)
                 skill_call = SkillCall(
                     name=action.type,
@@ -242,7 +231,7 @@ class EmbodiedSearchAgent:
                     expected_observation=f"Execute {action.type}",
                 )
                 fallback_reason = "stop_confidence_too_low"
-            elif task_plan.completion_mode == "approximate_sit":
+            elif task_plan.completion_mode == "approximate_sit" and not self.strict_vlm:
                 action = self._continue_approximate_sit(
                     completion_status=completion_status,
                     confidence=confidence,
@@ -260,7 +249,68 @@ class EmbodiedSearchAgent:
                     if premature_sit_action
                     else "premature_done_replanned"
                 )
-            else:
+            elif self.model_adapter.available() and planner_source == "model_planner":
+                rejected_action = action.to_dict()
+                replan_completion_status = dict(completion_status)
+                replan_completion_status["last_rejected_action"] = rejected_action
+                replan_completion_status["rejection_reason"] = (
+                    "Verifier rejected terminal action because the task is not complete. "
+                    "Use missing_actions, current_subgoal_id, and AI2-THOR environment "
+                    "context to choose the next non-terminal action."
+                )
+                (
+                    action,
+                    skill_call,
+                    planner_source,
+                    fallback_reason,
+                    planner_confidence,
+                    model_info,
+                ) = self._plan_with_model(
+                    analysis,
+                    vision_confidence,
+                    hints,
+                    state,
+                    request,
+                    observation,
+                    target_crop,
+                    task_plan,
+                    execution_plan,
+                    replan_completion_status,
+                )
+                model_info["decision_status"] = "vlm_replanned_after_rejected_done"
+                model_info["rejected_action"] = rejected_action
+                model_info["rejection_reason"] = replan_completion_status[
+                    "rejection_reason"
+                ]
+                keep_model_replan_source = planner_source == "model_planner"
+                if action.type in {"STOP", "Done"}:
+                    if self.strict_vlm:
+                        raise RuntimeError(
+                            "strict VLM mode received a second premature terminal action"
+                        )
+                    action = Action(
+                        "INSPECT",
+                        {
+                            "reason": (
+                                "VLM returned a terminal action again after verifier "
+                                "rejection; refresh evidence before the next VLM plan."
+                            )
+                        },
+                    )
+                    skill_call = SkillCall(
+                        name=action.type,
+                        args=action.args,
+                        preconditions=[
+                            "VLM terminal action was rejected twice by verifier"
+                        ],
+                        expected_observation=(
+                            "refresh current evidence so the next action is planned by VLM"
+                        ),
+                    )
+                    planner_source = "rule_fallback"
+                    fallback_reason = "premature_done_blocked_after_vlm_replan"
+                    keep_model_replan_source = False
+            elif not self.strict_vlm:
                 action = self._continue_supported_task(
                     task_plan=task_plan,
                     completion_status=completion_status,
@@ -278,8 +328,13 @@ class EmbodiedSearchAgent:
                     ),
                 )
                 fallback_reason = "premature_done_replanned"
-            planner_source = "rule_fallback"
-            model_info["decision_status"] = "rejected_premature_termination"
+            else:
+                raise RuntimeError(
+                    "strict VLM mode could not obtain a non-terminal action after verifier rejection"
+                )
+            if not keep_model_replan_source:
+                planner_source = "rule_fallback"
+            model_info.setdefault("decision_status", "rejected_premature_termination")
             done = self._action_finishes_step(
                 action,
                 completion_status=completion_status,
@@ -505,13 +560,17 @@ class EmbodiedSearchAgent:
         execution_plan: TaskExecutionPlan,
         completion_status: dict[str, object],
     ) -> tuple[Action, SkillCall | None, str, str | None, float | None, dict[str, object]]:
-        """Try to plan with model, fallback to rules if needed.
+        """Plan one action, optionally forbidding every non-VLM fallback.
 
         Returns:
             action, skill_call, planner_source, fallback_reason,
             planner_confidence, model_info
         """
         if not self.model_adapter.available():
+            if self.strict_vlm:
+                raise RuntimeError(
+                    "strict VLM mode requires an available multimodal model"
+                )
             action = self._rule_fallback_planner(confidence, analysis.target_visible, state)
             skill_call = SkillCall(name=action.type, args=action.args, preconditions=[], expected_observation=f"Execute {action.type}")
             return (
@@ -527,6 +586,12 @@ class EmbodiedSearchAgent:
             )
 
         # Build payload for model planner
+        model_allowed_actions = self._model_allowed_actions(task_plan)
+        model_action_specs = [
+            spec
+            for spec in task_plan.action_specs
+            if spec.get("name") in model_allowed_actions
+        ]
         payload = {
             "instruction": request.instruction,
             "observation_summary": analysis.scene_summary,
@@ -538,26 +603,38 @@ class EmbodiedSearchAgent:
             "retrieved_hints": hints,
             "episodic_memories": state.retrieved_memories,
             "layered_memories": state.layered_memories,
-            "allowed_actions": list(task_plan.action_candidates),
-            "action_specs": list(task_plan.action_specs),
+            "allowed_actions": model_allowed_actions,
+            "action_specs": model_action_specs,
             "terminal_actions": ["STOP", "Done", "ASK_CLARIFY"],
             "task_plan": task_plan.to_dict(),
             "execution_plan": execution_plan.to_dict(),
-            "environment_context": self._model_environment_context(
+            "environment_context": self._planner_environment_context(
                 request.environment_context
             ),
             "completion_status": completion_status,
             "current_step": request.step_id,
             "max_steps": self.config.max_steps,
-            "observation_image": image_to_data_url(observation),
+            "observation_image": self._model_observation_data_url(observation),
             "target_crop": image_to_data_url(target_crop) if target_crop is not None else None,
             "require_vision": True,
+            "strict_vlm": self.strict_vlm,
         }
 
         result = self.model_adapter.plan_action(payload)
 
         # Check if model call failed
         if "error" in result:
+            if self.strict_vlm:
+                error_detail = (
+                    result.get("provider_errors")
+                    or result.get("errors")
+                    or result.get("error")
+                )
+                raise RuntimeError(
+                    "strict VLM model call failed: "
+                    f"{result.get('fallback_reason') or result.get('error')}; "
+                    f"details={error_detail}"
+                )
             action = self._rule_fallback_planner(confidence, analysis.target_visible, state)
             skill_call = SkillCall(name=action.type, args=action.args, preconditions=[], expected_observation=f"Execute {action.type}")
             fallback_reason = result.get("fallback_reason", "model_api_error")
@@ -599,6 +676,14 @@ class EmbodiedSearchAgent:
 
             planner_confidence = float(result.get("confidence", confidence))
             planner_confidence = max(0.0, min(1.0, planner_confidence))
+            if self.strict_vlm and (
+                not bool(result.get("vision_input_used"))
+                or not str(result.get("provider_used") or "").strip()
+                or not str(result.get("model_used") or "").strip()
+            ):
+                raise RuntimeError(
+                    "strict VLM mode requires a successful multimodal model audit"
+                )
             return (
                 action,
                 skill_call,
@@ -614,11 +699,18 @@ class EmbodiedSearchAgent:
                     "task_progress": result.get("task_progress"),
                     "target_visible": bool(result.get("target_visible", False)),
                     "target_confidence": float(result.get("target_confidence", 0.0) or 0.0),
+                    "validation_repaired": bool(
+                        result.get("validation_repaired", False)
+                    ),
                 },
             )
 
         except Exception as e:
             # Model output parsing failed
+            if self.strict_vlm:
+                raise RuntimeError(
+                    f"strict VLM response parsing/validation failed: {e}"
+                ) from e
             action = self._rule_fallback_planner(confidence, analysis.target_visible, state)
             skill_call = SkillCall(name=action.type, args=action.args, preconditions=[], expected_observation=f"Execute {action.type}")
             return (
@@ -667,20 +759,28 @@ class EmbodiedSearchAgent:
                         "observation_summary": analysis.scene_summary,
                         "task_contract": task_plan.to_dict(),
                         "layered_memories": state.layered_memories,
-                        "environment_context": self._model_environment_context(
+                        "environment_context": self._planner_environment_context(
                             request.environment_context
                         ),
-                        "observation_image": image_to_data_url(observation),
+                        "observation_image": self._model_observation_data_url(
+                            observation
+                        ),
                         "target_crop": (
                             image_to_data_url(target_crop)
                             if target_crop is not None
                             else None
                         ),
                         "require_vision": True,
+                        "strict_vlm": self.strict_vlm,
                     }
                 )
             except Exception:
                 result = {"error": "task_planner_exception"}
+            if self.strict_vlm and "error" in result:
+                raise RuntimeError(
+                    "strict VLM task planning failed: "
+                    f"{result.get('error')}"
+                )
             candidate_ids = result.get("ordered_subgoal_ids")
             if (
                 "error" not in result
@@ -696,6 +796,15 @@ class EmbodiedSearchAgent:
                     result.get("failure_policy") or failure_policy
                 )
                 vision_input_used = bool(result.get("vision_input_used", False))
+
+        if self.strict_vlm and (
+            source != "model_planner"
+            or not vision_input_used
+        ):
+            raise RuntimeError(
+                "strict VLM mode requires a multimodal task plan; "
+                f"received source={source}, vision_input_used={vision_input_used}"
+            )
 
         subgoals_by_id = {
             str(subgoal["id"]): subgoal for subgoal in semantic_subgoals
@@ -742,6 +851,39 @@ class EmbodiedSearchAgent:
         if len(state.steps) % 4 == 2:
             return Action("TURN_LEFT", {"angle": self.config.raw["agent"]["default_turn_angle_degrees"]})
         return Action("TURN_RIGHT", {"angle": self.config.raw["agent"]["default_turn_angle_degrees"]})
+
+    def _model_observation_data_url(self, observation: Image.Image) -> str:
+        target_size = self.config.image_size
+        model_image = observation
+        if observation.size != target_size:
+            model_image = observation.resize(
+                target_size,
+                resample=Image.Resampling.LANCZOS,
+            )
+        return image_to_data_url(model_image)
+
+    def _model_allowed_actions(self, task_plan: TaskPlan) -> list[str]:
+        candidates = list(task_plan.action_candidates)
+        if not self.strict_vlm:
+            return candidates
+        alias_to_canonical = {
+            "Done": "STOP",
+            "LookDown": "LOOK_DOWN",
+            "LookUp": "LOOK_UP",
+            "MoveAhead": "MOVE_FORWARD",
+            "Pass": "INSPECT",
+            "RotateLeft": "TURN_LEFT",
+            "RotateRight": "TURN_RIGHT",
+        }
+        canonical_present = set(candidates)
+        return [
+            action
+            for action in candidates
+            if not (
+                action in alias_to_canonical
+                and alias_to_canonical[action] in canonical_present
+            )
+        ]
 
     @staticmethod
     def _has_successful_real_vlm_step(state) -> bool:
@@ -1054,6 +1196,22 @@ class EmbodiedSearchAgent:
             ):
                 sanitized_approach.pop(field, None)
             context["approach"] = sanitized_approach
+        return context
+
+    def _planner_environment_context(
+        self,
+        environment_context: dict | None,
+    ) -> dict:
+        context = self._model_environment_context(environment_context)
+        if not self.strict_vlm:
+            return context
+        objects = context.get("objects")
+        if isinstance(objects, list):
+            context["objects"] = [
+                item
+                for item in objects
+                if isinstance(item, dict) and bool(item.get("visible"))
+            ]
         return context
 
     def _continue_approximate_sit(

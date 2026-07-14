@@ -150,6 +150,49 @@ def _require_real_vlm_usage(*, spec: FinalDemoSpec, steps: list[dict[str, Any]])
     raise RuntimeError(f"{spec.task_id}: no successful real VLM vision call recorded")
 
 
+def _require_strict_vlm_usage(
+    *,
+    spec: FinalDemoSpec,
+    steps: list[dict[str, Any]],
+) -> None:
+    for index, step in enumerate(steps):
+        planner_source = str(step.get("planner_source") or "")
+        fallback_reason = step.get("fallback_reason")
+        model_info = step.get("model_info") or {}
+        provider = str(
+            model_info.get("provider") or model_info.get("provider_used") or ""
+        )
+        model = str(model_info.get("model") or model_info.get("model_used") or "")
+        errors = [
+            model_info.get("error"),
+            model_info.get("errors"),
+            model_info.get("parse_error"),
+            model_info.get("exception"),
+        ]
+        if planner_source != "model_planner":
+            raise RuntimeError(
+                f"{spec.task_id}: step {index} used forbidden planner_source="
+                f"{planner_source or 'missing'}"
+            )
+        if fallback_reason not in {None, ""}:
+            raise RuntimeError(
+                f"{spec.task_id}: step {index} recorded forbidden fallback_reason="
+                f"{fallback_reason}"
+            )
+        if (
+            str(model_info.get("status") or "") != "ok"
+            or model_info.get("vision_input_used") is not True
+            or not provider
+            or not model
+            or any(errors)
+            or any(token in provider.lower() for token in ("fake", "mock", "test"))
+            or any(token in model.lower() for token in ("fake", "mock", "test"))
+        ):
+            raise RuntimeError(
+                f"{spec.task_id}: step {index} lacks a clean real VLM audit"
+            )
+
+
 def _require_closed_loop_trace(*, spec: FinalDemoSpec, steps: list[dict[str, Any]]) -> None:
     saw_agent_decision = False
     saw_ai2thor_execution = False
@@ -320,6 +363,7 @@ def verify_demo_summary(
         raise RuntimeError(f"{spec.task_id}: summary has no steps")
     _require_ai2thor_steps(spec=spec, steps=steps)
     _require_real_vlm_usage(spec=spec, steps=steps)
+    _require_strict_vlm_usage(spec=spec, steps=steps)
     _require_closed_loop_trace(spec=spec, steps=steps)
 
     final_step = steps[-1]
@@ -358,6 +402,7 @@ def verify_demo_summary(
         "final_done": final_step.get("done"),
         "completion_status": completion,
         "vision_input_used": True,
+        "strict_vlm": True,
     }
 
 
@@ -375,7 +420,7 @@ def run_one_demo(
     demo = (
         demo_factory(spec)
         if demo_factory is not None
-        else AI2ThorVisualSearchDemo(scene=spec.scene)
+        else AI2ThorVisualSearchDemo(scene=spec.scene, strict_vlm=True)
     )
     result = demo.run_demo(
         instruction=spec.instruction,
